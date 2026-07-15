@@ -10,18 +10,34 @@ use ask_kernel::world::KernelWorld;
 
 #[test]
 fn generate_has_rooms_and_floors() {
-    let cfg = Config::default();
+    // Use a mid-size map for unit test speed; still frog pipeline
+    let mut cfg = Config::default();
+    cfg.width = 132; // 12 blocks
+    cfg.height = 88; // 8 blocks
+    cfg.tree_count = 40;
+    cfg.iron_count = 20;
+    cfg.seed = 42;
     let level = generate_level(&cfg);
-    assert!(level.rooms.len() >= 3, "rooms={}", level.rooms.len());
+    assert!(
+        level.rooms.len() >= 5,
+        "rooms={} (frog block placement)",
+        level.rooms.len()
+    );
     let floors = level
         .grid
         .cells
         .iter()
         .filter(|c| **c == ask_kernel::grid::Terrain::Floor)
         .count();
-    assert!(floors > 100, "floors={floors}");
-    assert!(level.grid.walkable(level.agent.0, level.agent.1));
+    assert!(floors > 200, "floors={floors}");
+    assert!(
+        level.grid.walkable(level.agent.0, level.agent.1),
+        "agent not on floor"
+    );
     assert!(!level.trees.is_empty());
+    // size snapped to BLOCK 11
+    assert_eq!(level.grid.width % 11, 0);
+    assert_eq!(level.grid.height % 11, 0);
 }
 
 #[test]
