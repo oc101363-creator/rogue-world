@@ -1,0 +1,9 @@
+{
+  "type": "action_batch",
+  "id": "req-1",
+  "agentId": "agent-1",
+  "tick": 12,
+  "actions": [
+    { "type": "move", "payload": { "dx": 1, "dy": 0 } }
+  ]
+}

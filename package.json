@@ -1,0 +1,11 @@
+{
+  "name": "agent-civilization-os",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev:world": "pnpm --filter @aco/world dev",
+    "dev:web": "pnpm --filter @aco/web dev",
+    "test": "pnpm -r test"
+  }
+}
