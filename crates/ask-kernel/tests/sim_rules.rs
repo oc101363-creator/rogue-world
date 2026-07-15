@@ -123,7 +123,7 @@ fn build_hut_costs_wood() {
     if let Some(mut inv) = kw.world.get_mut::<Inventory>(agent) {
         inv.wood = 3;
     }
-    // place on a walkable floor
+    // place on a buildable floor (not water/lava/door)
     let floor = {
         let g = kw.world.resource::<ask_kernel::grid::Grid>();
         (0..g.width * g.height)
@@ -132,8 +132,8 @@ fn build_hut_costs_wood() {
                 let y = i / g.width;
                 (x, y)
             })
-            .find(|(x, y)| g.walkable(*x, *y))
-            .unwrap()
+            .find(|(x, y)| g.buildable(*x, *y))
+            .expect("buildable cell")
     };
     if let Some(mut p) = kw.world.get_mut::<Position>(agent) {
         p.x = floor.0;
