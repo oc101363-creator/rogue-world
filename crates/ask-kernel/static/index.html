@@ -3,36 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ASK Viewer</title>
+    <title>ASK</title>
     <link rel="stylesheet" href="/static/app.css" />
     <script src="https://cdn.jsdelivr.net/npm/rot-js@2.2.1/dist/rot.js"></script>
   </head>
   <body>
-    <div id="app">
-      <header>
-        <h1>ASK Viewer</h1>
-        <span id="status" class="pill offline">connecting…</span>
-      </header>
-      <main>
-        <section id="map-panel">
-          <div id="map"></div>
-          <pre id="ascii" class="ascii"></pre>
-        </section>
-        <aside id="side">
-          <h2>World</h2>
-          <dl>
-            <dt>tick</dt><dd id="tick">—</dd>
-            <dt>size</dt><dd id="size">—</dd>
-            <dt>agent</dt><dd id="agent">—</dd>
-            <dt>wood / iron</dt><dd id="inv">—</dd>
-          </dl>
-          <h2>Entities</h2>
-          <ul id="entities"></ul>
-          <h2>Events</h2>
-          <ul id="events" class="events"></ul>
-        </aside>
-      </main>
-    </div>
+    <div id="map"></div>
+    <div id="hud"><span id="status">…</span> <span id="info"></span></div>
     <script src="/static/app.js"></script>
   </body>
 </html>

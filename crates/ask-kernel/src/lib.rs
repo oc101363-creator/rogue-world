@@ -9,6 +9,7 @@ pub mod components;
 pub mod config;
 pub mod events;
 pub mod gateway;
+pub mod generate;
 pub mod grid;
 pub mod memory;
 pub mod org;

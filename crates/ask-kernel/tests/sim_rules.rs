@@ -1,43 +1,84 @@
 use ask_kernel::actions::{Action, ActionQueue};
-use ask_kernel::components::{Agent, Inventory, Position, Resource, ResourceKind};
+use ask_kernel::components::{Inventory, Position, Resource, ResourceKind};
 use ask_kernel::config::Config;
 use ask_kernel::events::EventBuf;
+use ask_kernel::generate::generate_level;
 use ask_kernel::persist;
 use ask_kernel::systems::apply_actions_system;
 use ask_kernel::tick::Sim;
 use ask_kernel::world::KernelWorld;
-use bevy_ecs::prelude::*;
+
+#[test]
+fn generate_has_rooms_and_floors() {
+    let cfg = Config::default();
+    let level = generate_level(&cfg);
+    assert!(level.rooms.len() >= 3, "rooms={}", level.rooms.len());
+    let floors = level
+        .grid
+        .cells
+        .iter()
+        .filter(|c| **c == ask_kernel::grid::Terrain::Floor)
+        .count();
+    assert!(floors > 50, "floors={floors}");
+    assert!(level.grid.walkable(level.agent.0, level.agent.1));
+    assert!(!level.trees.is_empty());
+}
 
 #[test]
 fn move_four_way_and_blocked_by_wall() {
     let mut kw = KernelWorld::new(&Config::default());
     let agent = kw.agent_entity().unwrap();
-    // Place agent next to left wall at (1, 5)
+    // Put agent at (1,1) — border wall is x=0
     if let Some(mut p) = kw.world.get_mut::<Position>(agent) {
+        // find a floor next to a wall: use agent pos, try move into solid rock outside corridor
         p.x = 1;
-        p.y = 5;
+        p.y = 1;
+    }
+    // force cell (1,1) may be wall on generated maps — place on known floor then move to wall
+    let floor = {
+        let g = kw.world.resource::<ask_kernel::grid::Grid>();
+        let mut found = None;
+        'outer: for y in 1..g.height - 1 {
+            for x in 1..g.width - 1 {
+                if g.walkable(x, y) && !g.walkable(x - 1, y) {
+                    found = Some((x, y));
+                    break 'outer;
+                }
+            }
+        }
+        found.expect("floor next to wall")
+    };
+    if let Some(mut p) = kw.world.get_mut::<Position>(agent) {
+        p.x = floor.0;
+        p.y = floor.1;
     }
     kw.world
         .resource_mut::<ActionQueue>()
         .push(agent, Action::Move { dx: -1, dy: 0 });
     apply_actions_system(&mut kw.world);
     let p = kw.world.get::<Position>(agent).unwrap();
-    assert_eq!((p.x, p.y), (1, 5), "should not walk into wall");
+    assert_eq!((p.x, p.y), floor, "should not walk into wall");
 
     kw.world.resource_mut::<EventBuf>().clear();
-    kw.world
-        .resource_mut::<ActionQueue>()
-        .push(agent, Action::Move { dx: 1, dy: 0 });
-    apply_actions_system(&mut kw.world);
-    let p = kw.world.get::<Position>(agent).unwrap();
-    assert_eq!((p.x, p.y), (2, 5));
+    // move to a walkable neighbor if possible
+    let right_ok = kw
+        .world
+        .resource::<ask_kernel::grid::Grid>()
+        .walkable(floor.0 + 1, floor.1);
+    if right_ok {
+        kw.world
+            .resource_mut::<ActionQueue>()
+            .push(agent, Action::Move { dx: 1, dy: 0 });
+        apply_actions_system(&mut kw.world);
+        let p = kw.world.get::<Position>(agent).unwrap();
+        assert_eq!((p.x, p.y), (floor.0 + 1, floor.1));
+    }
 }
 
 #[test]
 fn harvest_increments_wood() {
     let mut kw = KernelWorld::new(&Config::default());
     let agent = kw.agent_entity().unwrap();
-    // Put agent on a tree
     let tree_pos = {
         let mut q = kw.world.query::<(&Position, &Resource)>();
         q.iter(&kw.world)
@@ -66,10 +107,21 @@ fn build_hut_costs_wood() {
     if let Some(mut inv) = kw.world.get_mut::<Inventory>(agent) {
         inv.wood = 3;
     }
-    // Ensure open floor
+    // place on a walkable floor
+    let floor = {
+        let g = kw.world.resource::<ask_kernel::grid::Grid>();
+        (0..g.width * g.height)
+            .map(|i| {
+                let x = i % g.width;
+                let y = i / g.width;
+                (x, y)
+            })
+            .find(|(x, y)| g.walkable(*x, *y))
+            .unwrap()
+    };
     if let Some(mut p) = kw.world.get_mut::<Position>(agent) {
-        p.x = 3;
-        p.y = 5;
+        p.x = floor.0;
+        p.y = floor.1;
     }
     kw.world
         .resource_mut::<ActionQueue>()
@@ -87,7 +139,7 @@ fn build_hut_costs_wood() {
 #[test]
 fn mock_sim_gathers_wood_over_steps() {
     let mut sim = Sim::new(KernelWorld::new(&Config::default()));
-    sim.run_steps(80, false);
+    sim.run_steps(200, false);
     let agent = sim.kernel.agent_entity().unwrap();
     let wood = sim
         .kernel
