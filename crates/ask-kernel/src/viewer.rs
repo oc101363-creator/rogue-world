@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::components::{Agent, Building, Glyph, Inventory, Position, Resource, ResourceKind, StableId};
 use crate::events::GameEvent;
-use crate::f_info::{self, bg_css, color_css};
+use crate::f_info;
 use crate::grid::Grid;
 use crate::view;
 use crate::world::TickCounter;
@@ -32,8 +32,8 @@ pub struct ViewerSnapshot {
     pub width: i32,
     pub height: i32,
     pub tiles: Vec<String>,
-    pub tile_fg: Vec<Vec<String>>,
-    pub tile_bg: Vec<Vec<String>>,
+    /// Frog f_info color letters per cell (same shape as `tiles`) — client themes map these.
+    pub tile_colors: Vec<String>,
     pub entities: Vec<ViewerEntity>,
     pub map: String,
     pub focused_agent_id: Option<u64>,
@@ -43,34 +43,25 @@ pub struct ViewerSnapshot {
 pub fn build_viewer_snapshot(world: &mut World, recent_events: &[GameEvent]) -> ViewerSnapshot {
     let tick = world.resource::<TickCounter>().0;
     let table = f_info::table();
-    let (width, height, tiles, tile_fg, tile_bg) = {
+    let (width, height, tiles, tile_colors) = {
         let grid = world.resource::<Grid>();
         let w = grid.width;
         let h = grid.height;
         let mut tiles = Vec::with_capacity(h as usize);
-        let mut tile_fg = Vec::with_capacity(h as usize);
-        let mut tile_bg = Vec::with_capacity(h as usize);
+        let mut tile_colors = Vec::with_capacity(h as usize);
         for y in 0..h {
             let mut row = String::with_capacity(w as usize);
-            let mut fg = Vec::with_capacity(w as usize);
-            let mut bg = Vec::with_capacity(w as usize);
+            let mut colors = String::with_capacity(w as usize);
             for x in 0..w {
                 let id = grid.cells[(y * w + x) as usize];
                 let info = table.get(id);
-                let glyph = info.map(|f| f.glyph).unwrap_or('?');
-                let letter = info.map(|f| f.color).unwrap_or('w');
-                let walk = info.map(|f| f.walk).unwrap_or(false);
-                let water = info.map(|f| f.water).unwrap_or(false);
-                let lava = info.map(|f| f.lava).unwrap_or(false);
-                row.push(glyph);
-                fg.push(color_css(letter).to_string());
-                bg.push(bg_css(letter, walk, water, lava).to_string());
+                row.push(info.map(|f| f.glyph).unwrap_or('?'));
+                colors.push(info.map(|f| f.color).unwrap_or('w'));
             }
             tiles.push(row);
-            tile_fg.push(fg);
-            tile_bg.push(bg);
+            tile_colors.push(colors);
         }
-        (w, h, tiles, tile_fg, tile_bg)
+        (w, h, tiles, tile_colors)
     };
 
     let mut entities = Vec::new();
@@ -133,8 +124,7 @@ pub fn build_viewer_snapshot(world: &mut World, recent_events: &[GameEvent]) -> 
         width,
         height,
         tiles,
-        tile_fg,
-        tile_bg,
+        tile_colors,
         entities,
         map,
         focused_agent_id,

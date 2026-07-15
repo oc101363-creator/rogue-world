@@ -1,8 +1,4 @@
-/* ASK map viewer — large world + crisp glyph rendering
- *
- * Blur fix: never CSS-scale a canvas. Zoom changes integer cell size and
- * we redraw only the visible tile window (RTS-style camera).
- */
+/* ASK map viewer — pan/zoom + selectable terminal themes */
 
 const WS_URL =
   (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
@@ -12,16 +8,10 @@ const elMap = document.getElementById("map");
 const elStatus = document.getElementById("status");
 const elInfo = document.getElementById("info");
 const elCam = document.getElementById("cam");
+const elTheme = document.getElementById("theme");
 
-const KIND_COLOR = {
-  agent: "#ffe066",
-  tree: "#2dd36f",
-  iron: "#c8d6e5",
-  hut: "#ff9f43",
-};
-
-/** Allowed cell pixel sizes (integer → sharp glyphs) */
 const ZOOM_STEPS = [6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 40];
+const THEME_KEY = "ask-theme";
 
 let display = null;
 let mapW = 0;
@@ -29,13 +19,12 @@ let mapH = 0;
 let lastSnap = null;
 let viewCols = 0;
 let viewRows = 0;
+let theme = getTheme(localStorage.getItem(THEME_KEY) || "nord");
 
 const cam = {
-  /** top-left tile in world */
   tx: 0,
   ty: 0,
-  /** index into ZOOM_STEPS */
-  zi: 4, // 14px
+  zi: 4,
   follow: true,
 };
 
@@ -43,13 +32,46 @@ function cellSize() {
   return ZOOM_STEPS[cam.zi];
 }
 
+function applyThemeChrome() {
+  const u = theme.ui;
+  document.documentElement.style.setProperty("--bg", u.bg);
+  document.documentElement.style.setProperty("--hud", u.hud);
+  document.documentElement.style.setProperty("--hud-muted", u.hudMuted);
+  document.documentElement.style.setProperty("--online", u.online);
+  document.documentElement.style.setProperty("--offline", u.offline);
+  document.body.style.background = u.bg;
+  elViewport.style.background = u.bg;
+}
+
+function setupThemeSelect() {
+  elTheme.innerHTML = "";
+  for (const t of THEMES) {
+    const opt = document.createElement("option");
+    opt.value = t.id;
+    opt.textContent = t.name;
+    if (t.id === theme.id) opt.selected = true;
+    elTheme.appendChild(opt);
+  }
+  elTheme.addEventListener("change", () => {
+    theme = getTheme(elTheme.value);
+    localStorage.setItem(THEME_KEY, theme.id);
+    applyThemeChrome();
+    // force display recreate with new void bg
+    display = null;
+    if (lastSnap) drawSnap(lastSnap);
+  });
+  applyThemeChrome();
+}
+
+function letterFg(letter) {
+  return theme.letters[letter] || theme.letters.w || "#ccc";
+}
+
 function syncViewSize() {
   const cs = cellSize();
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  // how many tiles fit in viewport
   viewCols = Math.max(8, Math.ceil(elViewport.clientWidth / cs) + 1);
   viewRows = Math.max(8, Math.ceil(elViewport.clientHeight / cs) + 1);
-  // don't exceed world
   if (mapW > 0) viewCols = Math.min(viewCols, mapW);
   if (mapH > 0) viewRows = Math.min(viewRows, mapH);
 
@@ -58,7 +80,8 @@ function syncViewSize() {
     display._viewCols !== viewCols ||
     display._viewRows !== viewRows ||
     display._cellSize !== cs ||
-    display._dpr !== dpr;
+    display._dpr !== dpr ||
+    display._themeId !== theme.id;
 
   if (needNew) {
     elMap.innerHTML = "";
@@ -67,29 +90,24 @@ function syncViewSize() {
       height: viewRows,
       fontSize: cs,
       fontFamily: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
-      bg: "#050805",
-      fg: "#33ff66",
+      bg: theme.void,
+      fg: theme.ui.hud,
       forceSquareRatio: true,
       spacing: 1,
     });
     const canvas = display.getContainer();
-    // HiDPI: back store sharp, CSS size = logical
     const lw = viewCols * cs;
     const lh = viewRows * cs;
     canvas.style.width = lw + "px";
     canvas.style.height = lh + "px";
-    // rot.js already sets canvas buffer; boost for retina if needed
-    if (dpr > 1 && canvas.getContext) {
-      // ROT manages buffer; style size is enough for most cases when fontSize is integer
-    }
     elMap.appendChild(canvas);
-    // center the view canvas in viewport when smaller than window
     elMap.style.width = lw + "px";
     elMap.style.height = lh + "px";
     display._viewCols = viewCols;
     display._viewRows = viewRows;
     display._cellSize = cs;
     display._dpr = dpr;
+    display._themeId = theme.id;
   }
   clampCamera();
   updateHudCam();
@@ -98,10 +116,8 @@ function syncViewSize() {
 
 function clampCamera() {
   if (mapW <= 0 || mapH <= 0) return;
-  cam.tx = Math.max(0, Math.min(mapW - viewCols, cam.tx));
-  cam.ty = Math.max(0, Math.min(mapH - viewRows, cam.ty));
-  cam.tx = Math.floor(cam.tx);
-  cam.ty = Math.floor(cam.ty);
+  cam.tx = Math.max(0, Math.min(mapW - viewCols, Math.floor(cam.tx)));
+  cam.ty = Math.max(0, Math.min(mapH - viewRows, Math.floor(cam.ty)));
 }
 
 function updateHudCam() {
@@ -121,11 +137,9 @@ function zoomBy(delta, anchorScreenX, anchorScreenY) {
   cam.zi = Math.max(0, Math.min(ZOOM_STEPS.length - 1, cam.zi + delta));
   if (cam.zi === oldZi) return;
 
-  // world tile under cursor before zoom
   const rect = elViewport.getBoundingClientRect();
-  const sx = (anchorScreenX ?? rect.width / 2);
-  const sy = (anchorScreenY ?? rect.height / 2);
-  // map is top-left aligned in viewport for simplicity
+  const sx = anchorScreenX ?? rect.width / 2;
+  const sy = anchorScreenY ?? rect.height / 2;
   const mapRect = elMap.getBoundingClientRect();
   const ox = sx - (mapRect.left - rect.left);
   const oy = sy - (mapRect.top - rect.top);
@@ -151,50 +165,43 @@ function drawSnap(snap) {
 
   const x0 = cam.tx;
   const y0 = cam.ty;
+  const colorRows = snap.tile_colors || [];
 
   d.clear();
-  const fgs = snap.tile_fg || [];
-  const bgs = snap.tile_bg || [];
   for (let vy = 0; vy < viewRows; vy++) {
     const wy = y0 + vy;
     const row = snap.tiles[wy] || "";
-    const fgRow = fgs[wy] || [];
-    const bgRow = bgs[wy] || [];
+    const colorRow = colorRows[wy] || "";
     for (let vx = 0; vx < viewCols; vx++) {
       const wx = x0 + vx;
       if (wy < 0 || wx < 0 || wy >= mapH || wx >= mapW) {
-        d.draw(vx, vy, " ", "#000", "#050805");
+        d.draw(vx, vy, " ", theme.void, theme.void);
         continue;
       }
       const ch = row[wx] || " ";
-      const fg = fgRow[wx] || "#888";
-      const bg = bgRow[wx] || "#050805";
+      const letter = colorRow[wx] || "w";
+      const fg = letterFg(letter);
+      const bg = theme.cellBg(letter, ch);
       d.draw(vx, vy, ch, fg, bg);
     }
   }
 
   const ents = snap.entities || [];
-  for (const e of ents) {
-    const vx = e.x - x0;
-    const vy = e.y - y0;
+  const e = theme.entities;
+  for (const ent of ents) {
+    const vx = ent.x - x0;
+    const vy = ent.y - y0;
     if (vx < 0 || vy < 0 || vx >= viewCols || vy >= viewRows) continue;
-    if (e.kind === "agent") {
-      d.draw(vx, vy, "@", KIND_COLOR.agent, "#1a280a");
+    if (ent.kind === "agent") {
+      d.draw(vx, vy, "@", e.agent, e.entityBg);
     } else {
-      d.draw(
-        vx,
-        vy,
-        e.glyph || "?",
-        KIND_COLOR[e.kind] || "#fff",
-        "#0a180a",
-      );
+      const fg = e[ent.kind] || e.iron;
+      d.draw(vx, vy, ent.glyph || "?", fg, e.entityBg);
     }
   }
 
-  // layout map element top-left (pan is via camera tiles, not CSS)
   elMap.style.left = "0px";
   elMap.style.top = "0px";
-  // center if view larger than map content already handled by viewCols clamp
   const lw = viewCols * cellSize();
   const lh = viewRows * cellSize();
   elMap.style.marginLeft =
@@ -229,7 +236,6 @@ function applySnapshot(snap) {
   drawSnap(snap);
 }
 
-// --- input: pan by dragging in tile space ---
 let dragging = false;
 let dragLast = null;
 let accumX = 0;
@@ -240,8 +246,7 @@ elViewport.addEventListener(
   (e) => {
     e.preventDefault();
     const rect = elViewport.getBoundingClientRect();
-    const delta = e.deltaY < 0 ? 1 : -1;
-    zoomBy(delta, e.clientX - rect.left, e.clientY - rect.top);
+    zoomBy(e.deltaY < 0 ? 1 : -1, e.clientX - rect.left, e.clientY - rect.top);
   },
   { passive: false },
 );
@@ -265,7 +270,6 @@ window.addEventListener("mousemove", (e) => {
   accumX += dx;
   accumY += dy;
   const cs = cellSize();
-  // drag right → see tiles to the left
   while (accumX >= cs) {
     cam.tx -= 1;
     accumX -= cs;
@@ -383,4 +387,5 @@ function connect() {
   };
 }
 
+setupThemeSelect();
 connect();
