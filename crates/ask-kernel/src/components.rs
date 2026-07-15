@@ -1,0 +1,40 @@
+use bevy_ecs::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Position {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Glyph(pub char);
+
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct Agent;
+
+#[derive(Component, Clone, Copy, Debug, Default, Serialize, Deserialize)]
+pub struct Inventory {
+    pub wood: u32,
+    pub iron: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceKind {
+    Wood,
+    Iron,
+}
+
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Resource {
+    pub kind: ResourceKind,
+    pub amount: u32,
+}
+
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct Building;
+
+/// Stable id for save/load (Frog entity index idea).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct StableId(pub u64);
