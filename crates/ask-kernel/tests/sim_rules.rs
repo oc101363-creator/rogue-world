@@ -27,7 +27,7 @@ fn generate_has_rooms_and_floors() {
         .grid
         .cells
         .iter()
-        .filter(|c| c.walk())
+        .filter(|c| ask_kernel::f_info::table().walk(**c))
         .count();
     assert!(floors > 200, "floors={floors}");
     assert!(

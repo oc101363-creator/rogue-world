@@ -1,11 +1,7 @@
-//! Level generation — frog `cave_gen` structure + f_info terrain kinds.
-//!
-//! Pipeline (generate.c / rooms.c / grid.c):
-//! fill granite → block rooms with outer walls → scramble centers →
-//! wandering tunnels → permanent border → veins/water/lava/doors/stairs → objects.
+//! Level generation — frog `cave_gen` pipeline; cells are real f_info ids.
 
 use crate::config::Config;
-use crate::feat::Feat;
+use crate::f_info::id;
 use crate::grid::Grid;
 
 const BLOCK_HGT: i32 = 11;
@@ -72,13 +68,12 @@ pub struct GeneratedLevel {
     pub irons: Vec<(i32, i32)>,
 }
 
-/// Generation-time cell tags (before baking to Feat).
 #[derive(Clone, Copy, PartialEq)]
 enum Cell {
-    Solid,  // diggable granite fill
-    Outer,  // room outer wall
-    Room,   // room floor
-    Tunnel, // corridor floor
+    Solid,
+    Outer,
+    Room,
+    Tunnel,
 }
 
 struct Cave {
@@ -136,7 +131,6 @@ fn rand_dir(rng: &mut Rng) -> (i32, i32) {
     }
 }
 
-/// `grid.c` build_tunnel (structure).
 fn build_tunnel(cave: &mut Cave, mut y1: i32, mut x1: i32, y2: i32, x2: i32, rng: &mut Rng) -> bool {
     let mut n = 0;
     let (mut row_dir, mut col_dir) = correct_dir(y1, x1, y2, x2);
@@ -295,98 +289,84 @@ fn generate_rooms(cave: &mut Cave, rng: &mut Rng) -> Vec<Room> {
     rooms
 }
 
-/// Bake Cell → Feat and sprinkle frog-style variety.
-fn bake_feats(cave: &Cave, rooms: &[Room], rng: &mut Rng) -> Vec<Feat> {
+/// Map generation tags → f_info feat ids (+ lakes/doors/stairs/veins).
+fn bake_feats(cave: &Cave, rooms: &[Room], rng: &mut Rng) -> Vec<u16> {
     let w = cave.w;
     let h = cave.h;
-    let mut feats = vec![Feat::Granite; (w * h) as usize];
+    let mut feats = vec![id::GRANITE; (w * h) as usize];
 
     for y in 0..h {
         for x in 0..w {
             let i = (y * w + x) as usize;
             feats[i] = match cave.get(x, y) {
-                Cell::Room => {
-                    // room floors: mostly FLOOR, some dirt/grass
-                    let r = rng.randint0(100);
-                    if r < 8 {
-                        Feat::Dirt
-                    } else if r < 14 {
-                        Feat::Grass
-                    } else {
-                        Feat::Floor
-                    }
-                }
-                Cell::Tunnel => Feat::Floor,
-                Cell::Outer => Feat::GraniteOuter,
-                Cell::Solid => {
-                    // solid rock variety: granite / magma / quartz / rubble (frog veins)
-                    let r = rng.randint0(100);
-                    if r < 4 {
-                        Feat::MagmaVein
-                    } else if r < 7 {
-                        Feat::QuartzVein
-                    } else if r < 8 {
-                        Feat::Rubble
-                    } else if r < 9 {
-                        Feat::MagmaTreasure
-                    } else if r < 10 {
-                        Feat::QuartzTreasure
-                    } else {
-                        Feat::Granite
-                    }
-                }
+                Cell::Room => match rng.randint0(100) {
+                    0..=7 => id::DIRT,
+                    8..=13 => id::GRASS,
+                    14..=16 => id::BRAKE,
+                    _ => id::FLOOR,
+                },
+                Cell::Tunnel => id::FLOOR,
+                Cell::Outer => id::GRANITE_OUTER,
+                Cell::Solid => match rng.randint0(100) {
+                    0..=3 => id::MAGMA_VEIN,
+                    4..=6 => id::QUARTZ_VEIN,
+                    7 => id::RUBBLE,
+                    8 => id::MAGMA_TREASURE,
+                    9 => id::QUARTZ_TREASURE,
+                    10..=11 => id::GRANITE_INNER,
+                    12 => id::GRANITE_SOLID,
+                    _ => id::GRANITE,
+                },
             };
         }
     }
 
-    // permanent border
+    // permanent border (frog place_extra / permanent walls)
     for x in 0..w {
-        feats[x as usize] = Feat::Permanent;
-        feats[((h - 1) * w + x) as usize] = Feat::Permanent;
+        feats[x as usize] = id::PERMANENT;
+        feats[((h - 1) * w + x) as usize] = id::PERMANENT;
     }
     for y in 0..h {
-        feats[(y * w) as usize] = Feat::Permanent;
-        feats[(y * w + w - 1) as usize] = Feat::Permanent;
+        feats[(y * w) as usize] = id::PERMANENT;
+        feats[(y * w + w - 1) as usize] = id::PERMANENT;
     }
 
-    // doors on outer piercings: tunnel adjacent to room
+    // doors at outer piercings
     for y in 1..h - 1 {
         for x in 1..w - 1 {
-            if feats[(y * w + x) as usize] != Feat::Floor {
+            if feats[(y * w + x) as usize] != id::FLOOR {
                 continue;
             }
-            // doorway if next to granite outer and room-ish
             let mut adj_outer = 0;
             for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
-                if feats[((y + dy) * w + (x + dx)) as usize] == Feat::GraniteOuter {
+                if feats[((y + dy) * w + (x + dx)) as usize] == id::GRANITE_OUTER {
                     adj_outer += 1;
                 }
             }
             if adj_outer >= 1 && rng.percent(12) {
-                feats[(y * w + x) as usize] = if rng.percent(70) {
-                    Feat::OpenDoor
-                } else {
-                    Feat::ClosedDoor
+                feats[(y * w + x) as usize] = match rng.randint0(10) {
+                    0..=5 => id::OPEN_DOOR,
+                    6..=8 => id::CLOSED_DOOR,
+                    _ => id::SECRET_DOOR,
                 };
             }
         }
     }
 
-    // stairs in a couple of rooms (frog alloc_stairs simplified)
+    // stairs
     if rooms.len() >= 2 {
         let r0 = rooms[0];
         let r1 = rooms[rooms.len() - 1];
-        feats[(r0.cy * w + r0.cx) as usize] = Feat::UpStair;
-        // offset down stair if same cell
+        feats[(r0.cy * w + r0.cx) as usize] = id::UP_STAIR;
         let mut dx = r1.cx;
-        let mut dy = r1.cy;
+        let dy = r1.cy;
         if dx == r0.cx && dy == r0.cy {
             dx = (r1.cx + 1).min(r1.x2 - 1);
         }
-        feats[(dy * w + dx) as usize] = Feat::DownStair;
+        feats[(dy * w + dx) as usize] = id::DOWN_STAIR;
     }
 
-    // shallow water pools in some rooms
+    // water pools
     let n_pools = (rooms.len() / 5).max(1);
     for _ in 0..n_pools {
         if rooms.is_empty() {
@@ -404,16 +384,16 @@ fn bake_feats(cave: &Cave, rooms: &[Room], rng: &mut Rng) -> Vec<Feat> {
                 if (xx - cx).abs() + (yy - cy).abs() <= rad {
                     let deep = (xx - cx).abs() + (yy - cy).abs() == 0 && rad > 1;
                     feats[(yy * w + xx) as usize] = if deep {
-                        Feat::DeepWater
+                        id::DEEP_WATER
                     } else {
-                        Feat::ShallowWater
+                        id::SHALLOW_WATER
                     };
                 }
             }
         }
     }
 
-    // rare lava patch (frog lake-ish)
+    // lava
     if rooms.len() > 4 && rng.percent(40) {
         let r = rooms[rng.randint0(rooms.len() as i32) as usize];
         let cy = (r.y1 + r.y2) / 2;
@@ -422,11 +402,20 @@ fn bake_feats(cave: &Cave, rooms: &[Room], rng: &mut Rng) -> Vec<Feat> {
             for xx in (cx - 1)..=(cx + 1) {
                 if xx > r.x1 && xx < r.x2 && yy > r.y1 && yy < r.y2 {
                     feats[(yy * w + xx) as usize] = if xx == cx && yy == cy {
-                        Feat::DeepLava
+                        id::DEEP_LAVA
                     } else {
-                        Feat::ShallowLava
+                        id::SHALLOW_LAVA
                     };
                 }
+            }
+        }
+    }
+
+    // dark pits in solid (rare chasms)
+    for y in 2..h - 2 {
+        for x in 2..w - 2 {
+            if feats[(y * w + x) as usize] == id::GRANITE && rng.percent(1) {
+                feats[(y * w + x) as usize] = id::DARK_PIT;
             }
         }
     }
@@ -435,6 +424,9 @@ fn bake_feats(cave: &Cave, rooms: &[Room], rng: &mut Rng) -> Vec<Feat> {
 }
 
 pub fn generate_level(cfg: &Config) -> GeneratedLevel {
+    // ensure f_info loaded early
+    let _ = crate::f_info::table();
+
     let mut w = cfg.width.max(BLOCK_WID * 4);
     let mut h = cfg.height.max(BLOCK_HGT * 4);
     w = (w / BLOCK_WID) * BLOCK_WID;
@@ -489,15 +481,16 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
     let mut floors: Vec<(i32, i32)> = Vec::new();
     for y in 1..h - 1 {
         for x in 1..w - 1 {
-            if grid.walkable(x, y) {
-                // don't spawn on stairs/doors/lava center ideally
-                let f = grid.get(x, y).unwrap();
-                if matches!(
-                    f,
-                    Feat::Floor | Feat::Dirt | Feat::Grass | Feat::ShallowWater
-                ) {
-                    floors.push((x, y));
-                }
+            if !grid.walkable(x, y) {
+                continue;
+            }
+            let f = grid.get(x, y).unwrap_or(0);
+            // spawn resources on ordinary floors
+            if matches!(
+                f,
+                id::FLOOR | id::DIRT | id::GRASS | id::SHALLOW_WATER | id::BRAKE
+            ) {
+                floors.push((x, y));
             }
         }
     }
@@ -507,9 +500,8 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
     }
 
     let agent = if !rooms.is_empty() {
-        // prefer not on stair
         let (cx, cy) = (rooms[0].cx, rooms[0].cy);
-        if grid.get(cx, cy) == Some(Feat::UpStair) {
+        if grid.get(cx, cy) == Some(id::UP_STAIR) {
             (cx + 1, cy)
         } else {
             (cx, cy)

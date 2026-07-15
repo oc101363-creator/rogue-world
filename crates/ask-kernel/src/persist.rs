@@ -1,4 +1,4 @@
-//! Whole-world save — Frog savefile idea via serde JSON.
+//! Whole-world save — cells are frog f_info ids.
 
 use anyhow::{bail, Context, Result};
 use bevy_ecs::prelude::*;
@@ -6,15 +6,15 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
+use crate::actions::ActionQueue;
 use crate::components::{
     Agent, Building, Glyph, Inventory, Position, Resource, ResourceKind, StableId,
 };
-use crate::feat::Feat;
+use crate::config::Config;
+use crate::events::EventBuf;
+use crate::f_info::FeatId;
 use crate::grid::Grid;
 use crate::world::{IdCounter, KernelConfig, KernelWorld, TickCounter};
-use crate::actions::ActionQueue;
-use crate::events::EventBuf;
-use crate::config::Config;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WorldSnapshot {
@@ -23,7 +23,7 @@ pub struct WorldSnapshot {
     pub height: i32,
     pub hut_wood_cost: u32,
     pub id_counter: u64,
-    pub cells: Vec<Feat>,
+    pub cells: Vec<FeatId>,
     pub entities: Vec<EntitySnap>,
 }
 
@@ -205,7 +205,6 @@ pub fn load_from_path(path: impl AsRef<Path>) -> Result<KernelWorld> {
     Ok(restore(snap))
 }
 
-/// Helper for tests: fresh default world.
 pub fn new_default() -> KernelWorld {
     KernelWorld::new(&Config::default())
 }

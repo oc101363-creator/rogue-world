@@ -1,4 +1,4 @@
-//! ASCII projection for CLI.
+//! ASCII projection for CLI — glyphs from f_info.
 
 use bevy_ecs::prelude::*;
 
@@ -15,7 +15,7 @@ pub fn render(world: &mut World) -> String {
     let mut chars: Vec<Vec<char>> = (0..h)
         .map(|y| {
             (0..w)
-                .map(|x| grid.cells[y * w + x].glyph())
+                .map(|x| grid.glyph(x as i32, y as i32))
                 .collect()
         })
         .collect();

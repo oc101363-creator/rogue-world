@@ -8,7 +8,7 @@ pub mod agents;
 pub mod components;
 pub mod config;
 pub mod events;
-pub mod feat;
+pub mod f_info;
 pub mod gateway;
 pub mod generate;
 pub mod grid;

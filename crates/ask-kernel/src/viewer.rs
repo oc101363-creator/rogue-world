@@ -1,11 +1,11 @@
-//! Viewer projection — glyphs + frog colors for web UI.
+//! Viewer projection — glyphs/colors from full f_info table.
 
 use bevy_ecs::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::components::{Agent, Building, Glyph, Inventory, Position, Resource, ResourceKind, StableId};
 use crate::events::GameEvent;
-use crate::feat::Feat;
+use crate::f_info::{self, bg_css, color_css};
 use crate::grid::Grid;
 use crate::view;
 use crate::world::TickCounter;
@@ -31,9 +31,7 @@ pub struct ViewerSnapshot {
     pub tick: u64,
     pub width: i32,
     pub height: i32,
-    /// Terrain glyph rows
     pub tiles: Vec<String>,
-    /// Parallel fg color CSS per cell (row-major strings of same length as tiles)
     pub tile_fg: Vec<Vec<String>>,
     pub tile_bg: Vec<Vec<String>>,
     pub entities: Vec<ViewerEntity>,
@@ -42,23 +40,9 @@ pub struct ViewerSnapshot {
     pub recent_events: Vec<GameEvent>,
 }
 
-fn feat_bg(f: Feat) -> &'static str {
-    match f {
-        Feat::DeepWater | Feat::ShallowWater => "#0a1a2a",
-        Feat::DeepLava | Feat::ShallowLava => "#2a0a0a",
-        Feat::Grass => "#0a1a0a",
-        Feat::Dirt => "#1a140a",
-        Feat::Permanent => "#1a1a22",
-        Feat::Granite | Feat::GraniteOuter | Feat::Mountain => "#121212",
-        Feat::MagmaVein | Feat::MagmaTreasure => "#1a1a14",
-        Feat::QuartzVein | Feat::QuartzTreasure => "#181818",
-        Feat::Rubble => "#161616",
-        _ => "#0c100c",
-    }
-}
-
 pub fn build_viewer_snapshot(world: &mut World, recent_events: &[GameEvent]) -> ViewerSnapshot {
     let tick = world.resource::<TickCounter>().0;
+    let table = f_info::table();
     let (width, height, tiles, tile_fg, tile_bg) = {
         let grid = world.resource::<Grid>();
         let w = grid.width;
@@ -71,10 +55,16 @@ pub fn build_viewer_snapshot(world: &mut World, recent_events: &[GameEvent]) -> 
             let mut fg = Vec::with_capacity(w as usize);
             let mut bg = Vec::with_capacity(w as usize);
             for x in 0..w {
-                let f = grid.cells[(y * w + x) as usize];
-                row.push(f.glyph());
-                fg.push(f.color().css().to_string());
-                bg.push(feat_bg(f).to_string());
+                let id = grid.cells[(y * w + x) as usize];
+                let info = table.get(id);
+                let glyph = info.map(|f| f.glyph).unwrap_or('?');
+                let letter = info.map(|f| f.color).unwrap_or('w');
+                let walk = info.map(|f| f.walk).unwrap_or(false);
+                let water = info.map(|f| f.water).unwrap_or(false);
+                let lava = info.map(|f| f.lava).unwrap_or(false);
+                row.push(glyph);
+                fg.push(color_css(letter).to_string());
+                bg.push(bg_css(letter, walk, water, lava).to_string());
             }
             tiles.push(row);
             tile_fg.push(fg);
