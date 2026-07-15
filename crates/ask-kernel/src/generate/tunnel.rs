@@ -131,7 +131,25 @@ pub fn build_tunnel(
             Cell::Solid => {
                 y1 = ty;
                 x1 = tx;
+                // 3-wide corridor (center + sides) for more open floors
                 cave.set(x1, y1, Cell::Tunnel);
+                if row_dir != 0 {
+                    // vertical dig → widen on x
+                    if cave.in_bounds(x1 - 1, y1) && cave.get(x1 - 1, y1) == Cell::Solid {
+                        cave.set(x1 - 1, y1, Cell::Tunnel);
+                    }
+                    if cave.in_bounds(x1 + 1, y1) && cave.get(x1 + 1, y1) == Cell::Solid {
+                        cave.set(x1 + 1, y1, Cell::Tunnel);
+                    }
+                } else {
+                    // horizontal dig → widen on y
+                    if cave.in_bounds(x1, y1 - 1) && cave.get(x1, y1 - 1) == Cell::Solid {
+                        cave.set(x1, y1 - 1, Cell::Tunnel);
+                    }
+                    if cave.in_bounds(x1, y1 + 1) && cave.get(x1, y1 + 1) == Cell::Solid {
+                        cave.set(x1, y1 + 1, Cell::Tunnel);
+                    }
+                }
                 door_flag = false;
             }
             Cell::Tunnel => {

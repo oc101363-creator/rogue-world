@@ -36,28 +36,25 @@ pub fn generate_rooms(cave: &mut Cave, rng: &mut Rng) -> DunRooms {
     let col_rooms = cave.w / BLOCK_WID;
     let mut room_map = vec![vec![false; col_rooms as usize]; row_rooms as usize];
 
-    // area scaling like frog
-    let area_size = 100 * (cave.h * cave.w) / (66 * 198);
-    let mut dun_rooms = rng.rand_range(10, 26) * area_size.max(1) / 100;
-    if dun_rooms < 8 {
-        dun_rooms = 8;
-    }
+    // Open map: pack most blocks with rooms so rock is ~20% not ~70%.
+    // Frog default is denser rock; ASK open-world target is more floor.
     let blocks = row_rooms * col_rooms;
-    dun_rooms = dun_rooms.max(blocks / 4).min(blocks - 4);
+    // Aim to attempt rooms on ~85% of blocks (minus edge friction).
+    let mut dun_rooms = (blocks * 85 / 100).max(12).min(blocks - 2);
 
-    // probability weights (frog: vaults rare, normal common)
-    // Normal 55, Overlap 20, Cavern 15, Vault 10
+    // More caverns/overlaps → larger open regions
+    // Normal 40, Overlap 30, Cavern 25, Vault 5
     let mut want_normal = 0;
     let mut want_overlap = 0;
     let mut want_cavern = 0;
     let mut want_vault = 0;
     for _ in 0..dun_rooms {
         let r = rng.randint0(100);
-        if r < 55 {
+        if r < 40 {
             want_normal += 1;
-        } else if r < 75 {
+        } else if r < 70 {
             want_overlap += 1;
-        } else if r < 90 {
+        } else if r < 95 {
             want_cavern += 1;
         } else {
             want_vault += 1;
@@ -152,15 +149,15 @@ fn build_type1(cave: &mut Cave, room_map: &mut [Vec<bool>], rng: &mut Rng) -> Op
         return None;
     }
 
-    // frog size pick
-    let y1off = 1 + rng.randint1(4);
-    let x1off = 2 + rng.randint1(8);
-    let y2off = 1 + rng.randint1(3);
-    let x2off = 2 + rng.randint1(8);
+    // Larger rooms to raise floor ratio (still fit block reserve)
+    let y1off = 2 + rng.randint1(5);
+    let x1off = 3 + rng.randint1(9);
+    let y2off = 2 + rng.randint1(4);
+    let x2off = 3 + rng.randint1(9);
     let mut ysize = y1off + y2off + 1;
     let mut xsize = x1off + x2off + 1;
-    ysize = ysize.min(bh * BLOCK_HGT - 4).max(4);
-    xsize = xsize.min(bw * BLOCK_WID - 4).max(5);
+    ysize = ysize.min(bh * BLOCK_HGT - 2).max(5);
+    xsize = xsize.min(bw * BLOCK_WID - 2).max(6);
 
     let block_y0 = by * BLOCK_HGT;
     let block_x0 = bx * BLOCK_WID;

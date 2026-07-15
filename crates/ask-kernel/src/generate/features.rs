@@ -114,8 +114,8 @@ pub fn build_maze_region(cave: &mut Cave, x1: i32, y1: i32, x2: i32, y2: i32, rn
 
 /// Optional full-level maze mode (frog DF1_MAZE / build_maze_vault driver).
 pub fn maybe_maze_level(cave: &mut Cave, rng: &mut Rng) -> bool {
-    // rare: ~8% of levels become maze-dominated center
-    if !rng.percent(8) {
+    // rarer: maze is rock-heavy; open map target prefers rooms
+    if !rng.percent(3) {
         return false;
     }
     let margin = 4;

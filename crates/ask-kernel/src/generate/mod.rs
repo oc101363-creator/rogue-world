@@ -148,7 +148,7 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
     let mut rng = Rng::new(cfg.seed);
     let mut cave = Cave::new(w, h);
 
-    // Rare full maze level (frog DF1_MAZE / build_maze_vault driver)
+    // Maze levels are very rocky; keep rare for open-world feel
     let maze_level = maybe_maze_level(&mut cave, &mut rng);
 
     // --- rooms (frog generate_rooms) ---
@@ -185,7 +185,8 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
             y = room.cy;
             x = room.cx;
         }
-        let extra = (rooms.len() / 4).max(1);
+        // More cross-links → less isolated rock between rooms
+        let extra = (rooms.len() / 2).max(2);
         for _ in 0..extra {
             let a = rng.randint0(rooms.len() as i32) as usize;
             let b = rng.randint0(rooms.len() as i32) as usize;
@@ -203,8 +204,11 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
         }
     }
 
-    // frog: occasional destroyed level after rooms
-    let destroyed = !maze_level && rng.percent(12);
+    // Open residual solid pockets: convert rock near floors to open space
+    open_rock_pockets(&mut cave, &mut rng);
+
+    // frog: occasional destroyed level after rooms (rockier — keep rarer for open maps)
+    let destroyed = !maze_level && rng.percent(6);
 
     let mut feats = bake_base(&cave, &mut rng);
     place_doors(&mut feats, w, h, &dun_tun, &mut rng);
@@ -247,6 +251,38 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
         agent,
         trees,
         irons,
+    }
+}
+
+/// Turn solid cells that touch open space into floor (boost open ratio toward ~80%).
+fn open_rock_pockets(cave: &mut Cave, rng: &mut Rng) {
+    // multiple passes grow open regions
+    for _ in 0..3 {
+        let mut to_open = Vec::new();
+        for y in 1..cave.h - 1 {
+            for x in 1..cave.w - 1 {
+                if cave.get(x, y) != Cell::Solid {
+                    continue;
+                }
+                let mut open_n = 0;
+                for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                    match cave.get(x + dx, y + dy) {
+                        Cell::Room | Cell::Tunnel => open_n += 1,
+                        _ => {}
+                    }
+                }
+                // solid adjacent to open → often carve
+                if open_n >= 1 && rng.percent(55 + open_n * 15) {
+                    to_open.push((x, y));
+                } else if open_n == 0 && rng.percent(8) {
+                    // sparse random cavern bubbles in deep rock
+                    to_open.push((x, y));
+                }
+            }
+        }
+        for (x, y) in to_open {
+            cave.set(x, y, Cell::Tunnel);
+        }
     }
 }
 
