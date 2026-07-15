@@ -38,3 +38,22 @@ pub struct Building;
 /// Stable id for save/load (Frog entity index idea).
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StableId(pub u64);
+
+/// Simple vitality for terrain hazards (lava / traps).
+#[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct Health {
+    pub hp: i32,
+    pub max_hp: i32,
+}
+
+impl Default for Health {
+    fn default() -> Self {
+        Self { hp: 20, max_hp: 20 }
+    }
+}
+
+impl Health {
+    pub fn damage(&mut self, n: i32) {
+        self.hp = (self.hp - n).max(0);
+    }
+}

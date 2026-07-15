@@ -38,6 +38,33 @@ pub enum GameEvent {
         entity: u64,
         reason: String,
     },
+    TrapTriggered {
+        entity: u64,
+        feat: u16,
+        name: String,
+        damage: i32,
+        at: (i32, i32),
+    },
+    TerrainDamage {
+        entity: u64,
+        kind: String,
+        damage: i32,
+        hp: i32,
+    },
+    DoorOpened {
+        entity: u64,
+        at: (i32, i32),
+    },
+    DoorClosed {
+        entity: u64,
+        at: (i32, i32),
+    },
+    LevelChanged {
+        entity: u64,
+        down: bool,
+        depth: u32,
+        seed: u64,
+    },
 }
 
 #[derive(Resource, Default, Debug)]

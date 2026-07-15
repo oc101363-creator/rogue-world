@@ -1,8 +1,10 @@
 use ask_kernel::actions::{Action, ActionQueue};
-use ask_kernel::components::{Inventory, Position, Resource, ResourceKind};
+use ask_kernel::components::{Health, Inventory, Position, Resource, ResourceKind};
 use ask_kernel::config::Config;
-use ask_kernel::events::EventBuf;
+use ask_kernel::events::{EventBuf, GameEvent};
+use ask_kernel::f_info::id;
 use ask_kernel::generate::generate_level;
+use ask_kernel::grid::Grid;
 use ask_kernel::persist;
 use ask_kernel::systems::apply_actions_system;
 use ask_kernel::tick::Sim;
@@ -216,6 +218,90 @@ fn mock_sim_gathers_wood_over_steps() {
         .map(|i| i.wood)
         .unwrap_or(0);
     assert!(wood >= 1, "expected harvest on tree, wood={wood}");
+}
+
+#[test]
+fn trap_damages_and_clears() {
+    let mut kw = KernelWorld::new(&Config {
+        width: 88,
+        height: 66,
+        seed: 1,
+        ..Config::default()
+    });
+    let agent = kw.agent_entity().unwrap();
+    // find a floor next to walkable and plant a trap on target
+    let (fx, fy) = {
+        let g = kw.world.resource::<Grid>();
+        (1..g.width - 1)
+            .flat_map(|x| (1..g.height - 1).map(move |y| (x, y)))
+            .find(|&(x, y)| g.buildable(x, y))
+            .expect("floor")
+    };
+    if let Some(mut p) = kw.world.get_mut::<Position>(agent) {
+        p.x = fx;
+        p.y = fy;
+    }
+    let tx = fx + 1;
+    let ty = fy;
+    // ensure target is walkable then set trap
+    {
+        let g = kw.world.resource_mut::<Grid>();
+        // force floor then trap
+        let _ = g;
+    }
+    kw.world.resource_mut::<Grid>().set(tx, ty, id::TRAP_PIT);
+    // if trap cell not walkable in table, force FLOOR then trap — traps have MOVE in f_info
+    let hp_before = kw.world.get::<Health>(agent).map(|h| h.hp).unwrap_or(0);
+    kw.world
+        .resource_mut::<ActionQueue>()
+        .push(agent, Action::Move { dx: 1, dy: 0 });
+    apply_actions_system(&mut kw.world);
+    let hp_after = kw.world.get::<Health>(agent).map(|h| h.hp).unwrap_or(0);
+    assert!(hp_after < hp_before, "trap should damage");
+    assert_eq!(
+        kw.world.resource::<Grid>().get(tx, ty),
+        Some(id::FLOOR),
+        "trap clears to floor"
+    );
+    let ev = kw.world.resource::<EventBuf>().events.clone();
+    assert!(
+        ev.iter().any(|e| matches!(e, GameEvent::TrapTriggered { .. })),
+        "expected TrapTriggered"
+    );
+}
+
+#[test]
+fn open_door_changes_feat() {
+    let mut kw = KernelWorld::new(&Config {
+        width: 88,
+        height: 66,
+        seed: 2,
+        ..Config::default()
+    });
+    let agent = kw.agent_entity().unwrap();
+    let (fx, fy) = {
+        let g = kw.world.resource::<Grid>();
+        (1..g.width - 1)
+            .flat_map(|x| (1..g.height - 1).map(move |y| (x, y)))
+            .find(|&(x, y)| g.buildable(x, y) && g.buildable(x + 1, y))
+            .expect("pair")
+    };
+    if let Some(mut p) = kw.world.get_mut::<Position>(agent) {
+        p.x = fx;
+        p.y = fy;
+    }
+    kw.world
+        .resource_mut::<Grid>()
+        .set(fx + 1, fy, id::CLOSED_DOOR);
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::OpenDoor { dx: 1, dy: 0 },
+    );
+    apply_actions_system(&mut kw.world);
+    assert_eq!(
+        kw.world.resource::<Grid>().get(fx + 1, fy),
+        Some(id::OPEN_DOOR)
+    );
 }
 
 #[test]

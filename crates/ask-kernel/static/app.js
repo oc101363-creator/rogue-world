@@ -19,7 +19,7 @@ let mapH = 0;
 let lastSnap = null;
 let viewCols = 0;
 let viewRows = 0;
-let theme = getTheme(localStorage.getItem(THEME_KEY) || "nord");
+let theme = getTheme(localStorage.getItem(THEME_KEY) || "qud-viridian");
 
 const cam = {
   tx: 0,

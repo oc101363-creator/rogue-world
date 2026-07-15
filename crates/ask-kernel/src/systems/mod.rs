@@ -1,6 +1,7 @@
 pub mod build;
 pub mod harvest;
 pub mod movement;
+pub mod terrain;
 
 use bevy_ecs::prelude::*;
 
@@ -12,6 +13,7 @@ use crate::world::TickCounter;
 use self::build::apply_build_hut;
 use self::harvest::apply_harvest;
 use self::movement::apply_move;
+use self::terrain::{apply_close_door, apply_open_door, apply_use_stairs};
 
 /// Apply all queued actions (sorted by entity index for determinism).
 pub fn apply_actions_system(world: &mut World) {
@@ -30,6 +32,9 @@ pub fn apply_actions_system(world: &mut World) {
             Action::Move { dx, dy } => apply_move(world, item.entity, dx, dy),
             Action::Harvest => apply_harvest(world, item.entity),
             Action::BuildHut => apply_build_hut(world, item.entity),
+            Action::OpenDoor { dx, dy } => apply_open_door(world, item.entity, dx, dy),
+            Action::CloseDoor { dx, dy } => apply_close_door(world, item.entity, dx, dy),
+            Action::UseStairs { down } => apply_use_stairs(world, item.entity, down),
             Action::Idle => {}
         }
     }
@@ -37,7 +42,9 @@ pub fn apply_actions_system(world: &mut World) {
 
 pub fn begin_tick_system(world: &mut World) {
     let tick = world.resource::<TickCounter>().0;
-    world.resource_mut::<EventBuf>().push(GameEvent::TickStarted { tick });
+    world
+        .resource_mut::<EventBuf>()
+        .push(GameEvent::TickStarted { tick });
     world.resource_mut::<ActionQueue>().clear();
 }
 

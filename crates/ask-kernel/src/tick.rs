@@ -6,9 +6,10 @@ use crate::actions::ActionQueue;
 use crate::agents::{mock::MockPolicy, AgentPolicy};
 use crate::components::Agent;
 use crate::events::EventBuf;
+use crate::systems::terrain::PendingLevelChange;
 use crate::systems::{advance_tick_system, apply_actions_system, begin_tick_system};
 use crate::view;
-use crate::world::KernelWorld;
+use crate::world::{KernelConfig, KernelWorld};
 
 pub struct Sim {
     pub kernel: KernelWorld,
@@ -31,26 +32,28 @@ impl Sim {
     pub fn step(&mut self) {
         let world = &mut self.kernel.world;
 
-        // Phase 1 prep
         begin_tick_system(world);
 
-        // Phase 1 collect — all agents
         let agents: Vec<Entity> = {
             let mut q = world.query_filtered::<Entity, With<Agent>>();
             q.iter(world).collect()
         };
         for agent in agents {
-            let action = self.policy.decide(world, agent); // world: &mut for query API
+            let action = self.policy.decide(world, agent);
             world.resource_mut::<ActionQueue>().push(agent, action);
         }
 
-        // Phase 2 apply
         apply_actions_system(world);
 
-        // Phase 3 world systems (empty MVP)
+        // Stairs: rebuild level if requested this tick
+        let pending = world.remove_resource::<PendingLevelChange>();
+        if let Some(p) = pending {
+            let hut = world.resource::<KernelConfig>().hut_wood_cost;
+            // amounts from defaults for now
+            self.kernel.change_level(p.seed, p.depth, hut, 4, 4);
+        }
 
-        // Phase 4 commit — events retained until drained by caller/view
-        advance_tick_system(world);
+        advance_tick_system(&mut self.kernel.world);
     }
 
     pub fn run_steps(&mut self, n: u64, print_each: bool) {

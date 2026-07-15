@@ -24,9 +24,12 @@ pub struct FeatInfo {
     pub permanent: bool,
     pub door: bool,
     pub stairs: bool,
+    pub trap: bool,
     pub water: bool,
     pub lava: bool,
     pub tree: bool,
+    pub less: bool, // up stairs
+    pub more: bool, // down stairs
 }
 
 #[derive(Clone, Debug)]
@@ -57,7 +60,21 @@ impl FeatTable {
         let Some(f) = self.get(id) else {
             return false;
         };
-        f.walk && !f.water && !f.lava && !f.door && !f.stairs
+        f.walk && !f.water && !f.lava && !f.door && !f.stairs && !f.trap
+    }
+
+    pub fn is_trap(&self, id: u16) -> bool {
+        self.get(id).map(|f| f.trap).unwrap_or(false)
+    }
+
+    pub fn is_closed_door(&self, id: u16) -> bool {
+        matches!(id, id::CLOSED_DOOR | id::SECRET_DOOR)
+            || self.get(id).map(|f| f.door && !f.walk).unwrap_or(false)
+    }
+
+    pub fn is_open_door(&self, id: u16) -> bool {
+        matches!(id, id::OPEN_DOOR | id::BROKEN_DOOR)
+            || self.get(id).map(|f| f.door && f.walk).unwrap_or(false)
     }
 
     pub fn count(&self) -> usize {
@@ -210,9 +227,12 @@ fn parse_f_info() -> FeatTable {
         let permanent = up.contains("PERMANENT");
         let door = up.contains("DOOR");
         let stairs = up.contains("STAIRS");
+        let trap = up.contains("TRAP") || up.contains("HIT_TRAP");
         let water = up.contains("WATER") || name.to_ascii_uppercase().contains("WATER");
         let lava = up.contains("LAVA") || name.to_ascii_uppercase().contains("LAVA");
         let tree = up.contains("TREE") || name.to_ascii_uppercase().contains("TREE");
+        let less = up.contains("LESS");
+        let more = up.contains("MORE");
         // shallow water still MOVE in frog; deep water often not — trust F:MOVE only for walk
         let info = FeatInfo {
             id,
@@ -224,9 +244,12 @@ fn parse_f_info() -> FeatTable {
             permanent,
             door,
             stairs,
+            trap,
             water,
             lava,
             tree,
+            less,
+            more,
         };
         let idx = id as usize;
         if by_id.len() <= idx {

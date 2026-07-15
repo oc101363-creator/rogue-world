@@ -9,6 +9,12 @@ pub enum Action {
     Move { dx: i32, dy: i32 },
     Harvest,
     BuildHut,
+    /// Open a closed/secret door on an adjacent cell (or underfoot).
+    OpenDoor { dx: i32, dy: i32 },
+    /// Close an open door adjacent / underfoot.
+    CloseDoor { dx: i32, dy: i32 },
+    /// Use stairs on current cell: true = down (>), false = up (<).
+    UseStairs { down: bool },
     Idle,
 }
 
