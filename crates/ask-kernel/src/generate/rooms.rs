@@ -19,9 +19,10 @@ pub struct Room {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RoomKind {
-    Normal,     // type1
-    Overlap,    // type2
-    Cavern,     // type9-ish organic
+    Normal,  // type1
+    Overlap, // type2
+    Cavern,  // type9-ish organic
+    Vault,   // lesser vault spirit: thick rim + rubble interior
 }
 
 pub struct DunRooms {
@@ -44,48 +45,31 @@ pub fn generate_rooms(cave: &mut Cave, rng: &mut Rng) -> DunRooms {
     let blocks = row_rooms * col_rooms;
     dun_rooms = dun_rooms.max(blocks / 4).min(blocks - 4);
 
-    // probability weights (frog room_info_normal simplified)
-    // Normal 60, Overlap 25, Cavern 15
+    // probability weights (frog: vaults rare, normal common)
+    // Normal 55, Overlap 20, Cavern 15, Vault 10
     let mut want_normal = 0;
     let mut want_overlap = 0;
     let mut want_cavern = 0;
+    let mut want_vault = 0;
     for _ in 0..dun_rooms {
         let r = rng.randint0(100);
-        if r < 60 {
+        if r < 55 {
             want_normal += 1;
-        } else if r < 85 {
+        } else if r < 75 {
             want_overlap += 1;
-        } else {
+        } else if r < 90 {
             want_cavern += 1;
+        } else {
+            want_vault += 1;
         }
     }
 
     let mut rooms = Vec::new();
-    // build larger/rarer first (frog room_build_order)
-    build_many(
-        cave,
-        &mut room_map,
-        &mut rooms,
-        rng,
-        want_cavern,
-        RoomKind::Cavern,
-    );
-    build_many(
-        cave,
-        &mut room_map,
-        &mut rooms,
-        rng,
-        want_overlap,
-        RoomKind::Overlap,
-    );
-    build_many(
-        cave,
-        &mut room_map,
-        &mut rooms,
-        rng,
-        want_normal,
-        RoomKind::Normal,
-    );
+    // frog room_build_order: rarer / larger first
+    build_many(cave, &mut room_map, &mut rooms, rng, want_vault, RoomKind::Vault);
+    build_many(cave, &mut room_map, &mut rooms, rng, want_cavern, RoomKind::Cavern);
+    build_many(cave, &mut room_map, &mut rooms, rng, want_overlap, RoomKind::Overlap);
+    build_many(cave, &mut room_map, &mut rooms, rng, want_normal, RoomKind::Normal);
 
     if rooms.is_empty() {
         if let Some(r) = build_type1(cave, &mut room_map, rng) {
@@ -111,6 +95,7 @@ fn build_many(
             RoomKind::Normal => build_type1(cave, room_map, rng),
             RoomKind::Overlap => build_type2(cave, room_map, rng),
             RoomKind::Cavern => build_type_cavern(cave, room_map, rng),
+            RoomKind::Vault => build_type_vault(cave, room_map, rng),
         };
         if let Some(r) = ok {
             rooms.push(r);
@@ -385,5 +370,46 @@ fn build_type_cavern(cave: &mut Cave, room_map: &mut [Vec<bool>], rng: &mut Rng)
         cx,
         cy,
         kind: RoomKind::Cavern,
+    })
+}
+
+/// Lesser-vault spirit: thick outer, floor core, rubble scatter (not full v_info templates).
+fn build_type_vault(cave: &mut Cave, room_map: &mut [Vec<bool>], rng: &mut Rng) -> Option<Room> {
+    let (by, bx) = pick_block(room_map, rng);
+    if !reserve_blocks(room_map, by, bx, 2, 2) {
+        return None;
+    }
+    let y1 = by * BLOCK_HGT + 1;
+    let x1 = bx * BLOCK_WID + 1;
+    let y2 = y1 + BLOCK_HGT + rng.rand_range(2, 6);
+    let x2 = x1 + BLOCK_WID + rng.rand_range(2, 8);
+    let y2 = y2.min(cave.h - 3);
+    let x2 = x2.min(cave.w - 3);
+    if y2 - y1 < 6 || x2 - x1 < 6 {
+        return None;
+    }
+    for y in y1..=y2 {
+        for x in x1..=x2 {
+            let edge = y == y1 || y == y2 || x == x1 || x == x2;
+            let inner_edge = y == y1 + 1 || y == y2 - 1 || x == x1 + 1 || x == x2 - 1;
+            if edge {
+                cave.set(x, y, Cell::Outer);
+            } else if inner_edge && rng.percent(70) {
+                cave.set(x, y, Cell::Inner);
+            } else if rng.percent(12) {
+                cave.set(x, y, Cell::Inner); // rubble-like pillars
+            } else {
+                cave.set(x, y, Cell::Room);
+            }
+        }
+    }
+    Some(Room {
+        x1,
+        y1,
+        x2,
+        y2,
+        cx: (x1 + x2) / 2,
+        cy: (y1 + y2) / 2,
+        kind: RoomKind::Vault,
     })
 }

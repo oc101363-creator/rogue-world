@@ -92,6 +92,8 @@ pub fn color_css(letter: char) -> &'static str {
         'G' => "#90ee90",
         'B' => "#87cefa",
         'U' => "#deb887",
+        // frog sometimes uses L (e.g. TREE G:#:L) — treat as leafy green
+        'L' | 'l' => "#3cb371",
         _ => "#cccccc",
     }
 }
