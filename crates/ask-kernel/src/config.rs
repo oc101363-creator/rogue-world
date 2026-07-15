@@ -6,7 +6,6 @@ pub struct Config {
     pub tree_amount: u32,
     pub iron_amount: u32,
     pub hut_wood_cost: u32,
-    /// How many tree entities to scatter
     pub tree_count: u32,
     pub iron_count: u32,
     pub room_count: u32,
@@ -17,18 +16,18 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            // Larger map (frog levels are much bigger; this is a practical MVP size)
-            width: 48,
-            height: 32,
+            // SC-scale-ish grid for MVP (viewport pans/zooms; not whole map on screen)
+            width: 96,
+            height: 64,
             seed: 1,
             tree_amount: 4,
             iron_amount: 4,
             hut_wood_cost: 3,
-            tree_count: 18,
-            iron_count: 10,
-            room_count: 10,
+            tree_count: 48,
+            iron_count: 28,
+            room_count: 22,
             room_min_size: 4,
-            room_max_size: 9,
+            room_max_size: 10,
         }
     }
 }

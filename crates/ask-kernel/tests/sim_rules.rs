@@ -19,7 +19,7 @@ fn generate_has_rooms_and_floors() {
         .iter()
         .filter(|c| **c == ask_kernel::grid::Terrain::Floor)
         .count();
-    assert!(floors > 50, "floors={floors}");
+    assert!(floors > 100, "floors={floors}");
     assert!(level.grid.walkable(level.agent.0, level.agent.1));
     assert!(!level.trees.is_empty());
 }

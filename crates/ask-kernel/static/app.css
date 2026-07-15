@@ -4,30 +4,61 @@ html, body {
   background: #050805;
   overflow: hidden;
   font-family: ui-monospace, Menlo, Consolas, monospace;
+  user-select: none;
+}
+
+#viewport {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  cursor: grab;
+  position: relative;
+  background:
+    radial-gradient(ellipse at center, #0a120a 0%, #050805 70%);
+}
+
+#viewport.dragging {
+  cursor: grabbing;
 }
 
 #map {
-  width: 100vw;
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 #map canvas {
   image-rendering: pixelated;
+  display: block;
 }
 
 #hud {
   position: fixed;
   top: 8px;
   left: 10px;
+  right: 10px;
   color: #33ff66;
   font-size: 12px;
-  opacity: 0.85;
+  opacity: 0.9;
   pointer-events: none;
   text-shadow: 0 0 4px #000;
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
 #status.offline { color: #c44; }
 #status.online { color: #33ff66; }
+#cam { color: #8f8; opacity: 0.85; }
+
+#help {
+  position: fixed;
+  bottom: 8px;
+  left: 10px;
+  color: #5a7a5a;
+  font-size: 11px;
+  pointer-events: none;
+  text-shadow: 0 0 4px #000;
+}

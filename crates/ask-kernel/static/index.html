@@ -8,8 +8,17 @@
     <script src="https://cdn.jsdelivr.net/npm/rot-js@2.2.1/dist/rot.js"></script>
   </head>
   <body>
-    <div id="map"></div>
-    <div id="hud"><span id="status">…</span> <span id="info"></span></div>
+    <div id="viewport">
+      <div id="map"></div>
+    </div>
+    <div id="hud">
+      <span id="status">…</span>
+      <span id="info"></span>
+      <span id="cam"></span>
+    </div>
+    <div id="help">
+      滚轮缩放 · 拖拽平移 · 空格跟随Agent · R重置视角 · +/-缩放
+    </div>
     <script src="/static/app.js"></script>
   </body>
 </html>
