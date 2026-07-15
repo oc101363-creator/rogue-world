@@ -77,6 +77,10 @@ impl TemplateRng for Rng {
         }
         self.randint0(n as i32) as usize
     }
+
+    fn next_u64(&mut self) -> u64 {
+        Rng::next_u64(self)
+    }
 }
 
 /// Generation-time cave cell (before f_info bake).
@@ -134,6 +138,8 @@ pub struct GeneratedLevel {
     pub agent: (i32, i32),
     pub trees: Vec<(i32, i32)>,
     pub irons: Vec<(i32, i32)>,
+    pub monsters: Vec<vaults::SpawnMon>,
+    pub items: Vec<vaults::SpawnObj>,
 }
 
 pub fn generate_level(cfg: &Config) -> GeneratedLevel {
@@ -204,32 +210,40 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
         }
     }
 
-    // Open residual solid pockets: convert rock near floors to open space
+    // Mild open-up only (keep big rock masses)
     open_rock_pockets(&mut cave, &mut rng);
-    // Break rectangular "wireframe" walls into piled/clumpy rock
     organicize_rock(&mut cave, &mut rng);
 
-    // frog: occasional destroyed level after rooms (rockier — keep rarer for open maps)
     let destroyed = !maze_level && rng.percent(6);
 
     let mut feats = bake_base(&cave, &mut rng);
+    // Big mountain / highland masses (not 1-tile lines)
+    place_mountain_ranges(&mut feats, w, h, &mut rng);
+
     place_doors(&mut feats, w, h, &dun_tun, &mut rng);
     place_stairs(&mut feats, w, &rooms);
     place_lakes(&mut feats, w, h, &rooms, &mut rng);
     place_rivers(&mut feats, w, h, &mut rng);
     place_tree_patches(&mut feats, w, h, &mut rng);
 
-    // frog vaults.txt + rooms.txt templates
-    place_templates(&mut feats, w, h, &rooms, &mut rng);
+    let mut monsters = Vec::new();
+    let mut items = Vec::new();
+    place_templates(
+        &mut feats,
+        w,
+        h,
+        &rooms,
+        &mut rng,
+        &mut monsters,
+        &mut items,
+    );
 
     if destroyed {
         destroy_level(&mut feats, w, h, &mut rng);
     }
-    // frog _cave_gen_traps — scale with area
     let trap_count = ((w * h) / 1800).clamp(8, 80);
     alloc_traps(&mut feats, w, h, trap_count, &mut rng);
 
-    // permanent border
     for x in 0..w {
         feats[x as usize] = id::PERMANENT;
         feats[((h - 1) * w + x) as usize] = id::PERMANENT;
@@ -253,13 +267,15 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
         agent,
         trees,
         irons,
+        monsters,
+        items,
     }
 }
 
 /// Turn solid cells that touch open space into floor (boost open ratio toward ~80%).
 fn open_rock_pockets(cave: &mut Cave, rng: &mut Rng) {
-    // multiple passes grow open regions
-    for _ in 0..3 {
+    // Fewer/milder passes — keep large rock bodies for mountains later
+    for _ in 0..2 {
         let mut to_open = Vec::new();
         for y in 1..cave.h - 1 {
             for x in 1..cave.w - 1 {
@@ -273,17 +289,85 @@ fn open_rock_pockets(cave: &mut Cave, rng: &mut Rng) {
                         _ => {}
                     }
                 }
-                // solid adjacent to open → often carve
-                if open_n >= 1 && rng.percent(55 + open_n * 15) {
+                if open_n >= 2 && rng.percent(40 + open_n * 10) {
                     to_open.push((x, y));
-                } else if open_n == 0 && rng.percent(8) {
-                    // sparse random cavern bubbles in deep rock
+                } else if open_n == 0 && rng.percent(3) {
                     to_open.push((x, y));
                 }
             }
         }
         for (x, y) in to_open {
             cave.set(x, y, Cell::Tunnel);
+        }
+    }
+}
+
+/// Large irregular mountain / highland masses (f_info MOUNTAIN).
+fn place_mountain_ranges(feats: &mut [u16], w: i32, h: i32, rng: &mut Rng) {
+    // 4–8 big ranges on a large map
+    let n = rng.rand_range(4, 9);
+    for _ in 0..n {
+        let cx = rng.rand_range(w / 8, w - w / 8);
+        let cy = rng.rand_range(h / 8, h - h / 8);
+        let rad_x = rng.rand_range(12, 28);
+        let rad_y = rng.rand_range(8, 20);
+        for yy in (cy - rad_y)..=(cy + rad_y) {
+            for xx in (cx - rad_x)..=(cx + rad_x) {
+                if xx <= 1 || yy <= 1 || xx >= w - 2 || yy >= h - 2 {
+                    continue;
+                }
+                // ellipse with noise
+                let nx = (xx - cx) as f32 / rad_x as f32;
+                let ny = (yy - cy) as f32 / rad_y as f32;
+                let d = nx * nx + ny * ny;
+                let noise = (rng.randint0(40) as f32 - 20.0) * 0.01;
+                if d > 1.0 + noise {
+                    continue;
+                }
+                let i = (yy * w + xx) as usize;
+                if feats[i] == id::PERMANENT {
+                    continue;
+                }
+                // core mountain, rim granite/rubble
+                if d < 0.45 {
+                    feats[i] = id::MOUNTAIN;
+                } else if d < 0.75 {
+                    feats[i] = if rng.percent(70) {
+                        id::MOUNTAIN
+                    } else {
+                        id::GRANITE
+                    };
+                } else if rng.percent(55) {
+                    feats[i] = if rng.percent(40) {
+                        id::RUBBLE
+                    } else {
+                        id::GRANITE
+                    };
+                }
+            }
+        }
+        // a few foothill blobs around each range
+        for _ in 0..rng.rand_range(2, 5) {
+            let fx = cx + rng.rand_range(-rad_x, rad_x + 1);
+            let fy = cy + rng.rand_range(-rad_y, rad_y + 1);
+            let fr = rng.rand_range(3, 8);
+            for yy in (fy - fr)..=(fy + fr) {
+                for xx in (fx - fr)..=(fx + fr) {
+                    if xx <= 1 || yy <= 1 || xx >= w - 2 || yy >= h - 2 {
+                        continue;
+                    }
+                    if (xx - fx).abs() + (yy - fy).abs() > fr {
+                        continue;
+                    }
+                    let i = (yy * w + xx) as usize;
+                    if feats[i] == id::PERMANENT {
+                        continue;
+                    }
+                    if rng.percent(65) {
+                        feats[i] = id::MOUNTAIN;
+                    }
+                }
+            }
         }
     }
 }
@@ -643,7 +727,15 @@ fn place_tree_patches(feats: &mut [u16], w: i32, h: i32, rng: &mut Rng) {
 }
 
 /// Stamp frog vaults.txt + rooms.txt templates (generate_rooms TEMPLATE path).
-fn place_templates(feats: &mut [u16], w: i32, h: i32, rooms: &[Room], rng: &mut Rng) {
+fn place_templates(
+    feats: &mut [u16],
+    w: i32,
+    h: i32,
+    rooms: &[Room],
+    rng: &mut Rng,
+    mons: &mut Vec<vaults::SpawnMon>,
+    objs: &mut Vec<vaults::SpawnObj>,
+) {
     let tries_greater = if w * h > 40_000 { 2 } else { 1 };
     let tries_lesser = if w * h > 20_000 { 3 } else { 2 };
     let tries_room = if w * h > 20_000 { 4 } else { 2 };
@@ -651,21 +743,21 @@ fn place_templates(feats: &mut [u16], w: i32, h: i32, rooms: &[Room], rng: &mut 
     for _ in 0..tries_greater {
         if rng.percent(50) {
             if let Some(v) = vaults::pick_greater(rng) {
-                try_stamp(feats, w, h, rooms, rng, v);
+                try_stamp(feats, w, h, rooms, rng, v, mons, objs);
             }
         }
     }
     for _ in 0..tries_lesser {
         if rng.percent(75) {
             if let Some(v) = vaults::pick_lesser(rng) {
-                try_stamp(feats, w, h, rooms, rng, v);
+                try_stamp(feats, w, h, rooms, rng, v, mons, objs);
             }
         }
     }
     for _ in 0..tries_room {
         if rng.percent(80) {
             if let Some(v) = vaults::pick_room(rng) {
-                try_stamp(feats, w, h, rooms, rng, v);
+                try_stamp(feats, w, h, rooms, rng, v, mons, objs);
             }
         }
     }
@@ -678,6 +770,8 @@ fn try_stamp(
     rooms: &[Room],
     rng: &mut Rng,
     v: &vaults::MapTemplate,
+    mons: &mut Vec<vaults::SpawnMon>,
+    objs: &mut Vec<vaults::SpawnObj>,
 ) {
     let vw = v.width();
     let vh = v.height();
@@ -697,7 +791,7 @@ fn try_stamp(
                 rng.rand_range(2, h - vh - 2),
             )
         };
-        if vaults::stamp_template(feats, w, h, ox, oy, v) {
+        if vaults::stamp_template(feats, w, h, ox, oy, v, rng, mons, objs) {
             return;
         }
     }

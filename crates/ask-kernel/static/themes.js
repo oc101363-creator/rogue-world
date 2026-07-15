@@ -14,7 +14,7 @@
  *   void: string,
  *   letters: Record<string, string>,
  *   cellBg: (letter: string, ch: string) => string,
- *   entities: { agent: string, tree: string, iron: string, hut: string, entityBg: string },
+ *   entities: { agent: string, tree: string, iron: string, hut: string, monster: string, item: string, entityBg: string },
  * }} Theme */
 
 /** @type {Theme[]} */
@@ -65,6 +65,8 @@ const THEMES = [
       tree: "#00c420",
       iron: "#77bfcf",
       hut: "#e99f10",
+      monster: "#f15f22",
+      item: "#da5bd6",
       entityBg: "#155352",
     },
   },
@@ -112,6 +114,8 @@ const THEMES = [
       tree: "#a6e3a1",
       iron: "#89dceb",
       hut: "#fab387",
+      monster: "#f38ba8",
+      item: "#cba6f7",
       entityBg: "#313244",
     },
   },
@@ -160,6 +164,8 @@ const THEMES = [
       tree: "#2dd36f",
       iron: "#c8d6e5",
       hut: "#ff9f43",
+      monster: "#ff6b6b",
+      item: "#c44cff",
       entityBg: "#1a280a",
     },
   },

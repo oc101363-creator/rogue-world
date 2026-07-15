@@ -4,8 +4,9 @@ use bevy_ecs::prelude::*;
 
 use crate::actions::ActionQueue;
 use crate::components::{
-    Agent, Glyph, Health, Inventory, Position, Resource, ResourceKind, StableId,
+    Agent, Glyph, Health, Inventory, Item, Monster, Position, Resource, ResourceKind, StableId,
 };
+use crate::vaults::{SpawnMon, SpawnObj};
 use crate::config::Config;
 use crate::events::EventBuf;
 use crate::generate::generate_level;
@@ -51,7 +52,14 @@ impl KernelWorld {
         world.insert_resource(WorldSeed(cfg.seed));
 
         let mut kw = Self { world };
-        kw.spawn_level_entities(&cfg, level.agent, &level.trees, &level.irons);
+        kw.spawn_level_entities(
+            &cfg,
+            level.agent,
+            &level.trees,
+            &level.irons,
+            &level.monsters,
+            &level.items,
+        );
         kw
     }
 
@@ -84,25 +92,32 @@ impl KernelWorld {
         // keep tick counter / event buf
 
         let (inv, hp, sid) = saved.unwrap_or((Inventory::default(), Health::default(), 1));
-        self.world.spawn((
-            Agent,
-            Position {
-                x: level.agent.0,
-                y: level.agent.1,
-            },
-            Glyph('A'),
-            inv,
-            hp,
-            StableId(sid),
-        ));
-        // bump id counter past sid
         {
             let mut c = self.world.resource_mut::<IdCounter>();
             if c.0 < sid {
                 c.0 = sid;
             }
         }
-        for (x, y) in level.trees {
+        // re-spawn agent with saved stats after clear — handled via spawn helper below
+        // temporarily store then spawn all
+        let agent_pos = level.agent;
+        let trees = level.trees.clone();
+        let irons = level.irons.clone();
+        let monsters = level.monsters.clone();
+        let items = level.items.clone();
+
+        self.world.spawn((
+            Agent,
+            Position {
+                x: agent_pos.0,
+                y: agent_pos.1,
+            },
+            Glyph('A'),
+            inv,
+            hp,
+            StableId(sid),
+        ));
+        for (x, y) in trees {
             let id = self.next_id();
             self.world.spawn((
                 Position { x, y },
@@ -114,7 +129,7 @@ impl KernelWorld {
                 StableId(id),
             ));
         }
-        for (x, y) in level.irons {
+        for (x, y) in irons {
             let id = self.next_id();
             self.world.spawn((
                 Position { x, y },
@@ -122,6 +137,32 @@ impl KernelWorld {
                 Resource {
                     kind: ResourceKind::Iron,
                     amount: iron_amount,
+                },
+                StableId(id),
+            ));
+        }
+        for m in monsters {
+            let id = self.next_id();
+            self.world.spawn((
+                Position { x: m.x, y: m.y },
+                Glyph(m.glyph),
+                Monster {
+                    race_id: m.race_id,
+                    name: m.name,
+                    color: m.color,
+                },
+                StableId(id),
+            ));
+        }
+        for o in items {
+            let id = self.next_id();
+            self.world.spawn((
+                Position { x: o.x, y: o.y },
+                Glyph(o.glyph),
+                Item {
+                    kind_id: o.kind_id,
+                    name: o.name,
+                    color: o.color,
                 },
                 StableId(id),
             ));
@@ -134,6 +175,8 @@ impl KernelWorld {
         agent: (i32, i32),
         trees: &[(i32, i32)],
         irons: &[(i32, i32)],
+        monsters: &[SpawnMon],
+        items: &[SpawnObj],
     ) {
         let id = self.next_id();
         self.world.spawn((
@@ -169,6 +212,34 @@ impl KernelWorld {
                 Resource {
                     kind: ResourceKind::Iron,
                     amount: cfg.iron_amount,
+                },
+                StableId(id),
+            ));
+        }
+
+        for m in monsters {
+            let id = self.next_id();
+            self.world.spawn((
+                Position { x: m.x, y: m.y },
+                Glyph(m.glyph),
+                Monster {
+                    race_id: m.race_id,
+                    name: m.name.clone(),
+                    color: m.color,
+                },
+                StableId(id),
+            ));
+        }
+
+        for o in items {
+            let id = self.next_id();
+            self.world.spawn((
+                Position { x: o.x, y: o.y },
+                Glyph(o.glyph),
+                Item {
+                    kind_id: o.kind_id,
+                    name: o.name.clone(),
+                    color: o.color,
                 },
                 StableId(id),
             ));

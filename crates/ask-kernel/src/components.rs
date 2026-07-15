@@ -57,3 +57,19 @@ impl Health {
         self.hp = (self.hp - n).max(0);
     }
 }
+
+/// Frog monster instance (from r_info / template MON()).
+#[derive(Component, Clone, Debug)]
+pub struct Monster {
+    pub race_id: u16,
+    pub name: String,
+    pub color: char,
+}
+
+/// Frog object instance (from k_info / template OBJ()).
+#[derive(Component, Clone, Debug)]
+pub struct Item {
+    pub kind_id: u16,
+    pub name: String,
+    pub color: char,
+}

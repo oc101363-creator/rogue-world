@@ -12,8 +12,10 @@ pub mod f_info;
 pub mod gateway;
 pub mod generate; // generate/mod.rs
 pub mod grid;
-pub mod vaults;
+pub mod k_info;
 pub mod memory;
+pub mod r_info;
+pub mod vaults;
 pub mod org;
 pub mod persist;
 pub mod serve;

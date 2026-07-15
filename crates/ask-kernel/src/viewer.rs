@@ -3,7 +3,9 @@
 use bevy_ecs::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::components::{Agent, Building, Glyph, Inventory, Position, Resource, ResourceKind, StableId};
+use crate::components::{
+    Agent, Building, Glyph, Inventory, Item, Monster, Position, Resource, ResourceKind, StableId,
+};
 use crate::events::GameEvent;
 use crate::f_info;
 use crate::grid::Grid;
@@ -105,6 +107,36 @@ pub fn build_viewer_snapshot(world: &mut World, recent_events: &[GameEvent]) -> 
             entities.push(ViewerEntity {
                 id: id.0,
                 kind: "hut".into(),
+                x: p.x,
+                y: p.y,
+                glyph: g.0,
+                wood: None,
+                iron: None,
+                amount: None,
+            });
+        }
+    }
+    {
+        let mut q = world.query::<(&StableId, &Position, &Glyph, &Monster)>();
+        for (id, p, g, _) in q.iter(world) {
+            entities.push(ViewerEntity {
+                id: id.0,
+                kind: "monster".into(),
+                x: p.x,
+                y: p.y,
+                glyph: g.0,
+                wood: None,
+                iron: None,
+                amount: None,
+            });
+        }
+    }
+    {
+        let mut q = world.query::<(&StableId, &Position, &Glyph, &Item)>();
+        for (id, p, g, _) in q.iter(world) {
+            entities.push(ViewerEntity {
+                id: id.0,
+                kind: "item".into(),
                 x: p.x,
                 y: p.y,
                 glyph: g.0,
