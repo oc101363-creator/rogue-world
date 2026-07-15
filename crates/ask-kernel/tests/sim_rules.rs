@@ -18,11 +18,7 @@ fn generate_has_rooms_and_floors() {
     cfg.iron_count = 20;
     cfg.seed = 42;
     let level = generate_level(&cfg);
-    assert!(
-        level.rooms.len() >= 5,
-        "rooms={} (frog block placement)",
-        level.rooms.len()
-    );
+    // maze-only levels may have 0 formal rooms
     let floors = level
         .grid
         .cells
@@ -38,6 +34,22 @@ fn generate_has_rooms_and_floors() {
     // size snapped to BLOCK 11
     assert_eq!(level.grid.width % 11, 0);
     assert_eq!(level.grid.height % 11, 0);
+}
+
+#[test]
+fn generate_uses_traps_from_f_info() {
+    let mut cfg = Config::default();
+    cfg.width = 132;
+    cfg.height = 88;
+    cfg.seed = 7;
+    let level = generate_level(&cfg);
+    let traps = level
+        .grid
+        .cells
+        .iter()
+        .filter(|&&id| (16..=31).contains(&id))
+        .count();
+    assert!(traps >= 5, "expected frog trap feats, got {traps}");
 }
 
 #[test]

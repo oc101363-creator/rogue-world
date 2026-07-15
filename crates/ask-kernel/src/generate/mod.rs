@@ -7,6 +7,7 @@
 //!
 //! Feat ids are always real `f_info` N: numbers.
 
+mod features;
 mod rooms;
 mod tunnel;
 
@@ -16,6 +17,7 @@ use crate::grid::Grid;
 
 pub use rooms::Room;
 
+use features::{alloc_traps, destroy_level, maybe_maze_level, stamp_maze_vault};
 use rooms::{generate_rooms, DunRooms};
 use tunnel::{build_tunnel, correct_dir, DunTunnel};
 
@@ -136,13 +138,31 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
     let mut rng = Rng::new(cfg.seed);
     let mut cave = Cave::new(w, h);
 
+    // Rare full maze level (frog DF1_MAZE / build_maze_vault driver)
+    let maze_level = maybe_maze_level(&mut cave, &mut rng);
+
     // --- rooms (frog generate_rooms) ---
-    let DunRooms { mut rooms, room_map: _ } = generate_rooms(&mut cave, &mut rng);
+    let DunRooms {
+        mut rooms,
+        room_map: _,
+    } = if maze_level {
+        DunRooms {
+            rooms: Vec::new(),
+            room_map: vec![],
+        }
+    } else {
+        generate_rooms(&mut cave, &mut rng)
+    };
 
     // scramble centers
     for i in 0..rooms.len() {
         let pick = rng.randint0((i + 1) as i32) as usize;
         rooms.swap(i, pick);
+    }
+
+    // occasional maze vault stamped into a large room
+    if !maze_level {
+        stamp_maze_vault(&mut cave, &rooms, &mut rng);
     }
 
     // --- tunnels (frog build_tunnel + wall/door lists) ---
@@ -155,7 +175,6 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
             y = room.cy;
             x = room.cx;
         }
-        // extra connections (connectivity)
         let extra = (rooms.len() / 4).max(1);
         for _ in 0..extra {
             let a = rng.randint0(rooms.len() as i32) as usize;
@@ -174,14 +193,21 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
         }
     }
 
-    // apply tunnel digs already written as Cell::Tunnel during build_tunnel
-    // place doors on recorded door junctions / piercings
+    // frog: occasional destroyed level after rooms
+    let destroyed = !maze_level && rng.percent(12);
+
     let mut feats = bake_base(&cave, &mut rng);
     place_doors(&mut feats, w, h, &dun_tun, &mut rng);
     place_stairs(&mut feats, w, &rooms);
     place_lakes(&mut feats, w, h, &rooms, &mut rng);
     place_rivers(&mut feats, w, h, &mut rng);
     place_tree_patches(&mut feats, w, h, &mut rng);
+    if destroyed {
+        destroy_level(&mut feats, w, h, &mut rng);
+    }
+    // frog _cave_gen_traps — scale with area
+    let trap_count = ((w * h) / 1800).clamp(8, 80);
+    alloc_traps(&mut feats, w, h, trap_count, &mut rng);
 
     // permanent border
     for x in 0..w {

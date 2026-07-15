@@ -145,6 +145,43 @@ pub mod id {
     pub const BRAKE: u16 = 94;
     pub const TREE: u16 = 96;
     pub const MOUNTAIN: u16 = 97;
+
+    // Visible traps (f_info N:16–31) — frog place_trap / choose_random_trap
+    pub const TRAP_TRAPDOOR: u16 = 16;
+    pub const TRAP_PIT: u16 = 17;
+    pub const TRAP_SPIKED_PIT: u16 = 18;
+    pub const TRAP_POISON_PIT: u16 = 19;
+    pub const TRAP_TY_CURSE: u16 = 20;
+    pub const TRAP_TELEPORT: u16 = 21;
+    pub const TRAP_FIRE: u16 = 22;
+    pub const TRAP_ACID: u16 = 23;
+    pub const TRAP_SLOW: u16 = 24;
+    pub const TRAP_LOSE_STR: u16 = 25;
+    pub const TRAP_LOSE_DEX: u16 = 26;
+    pub const TRAP_LOSE_CON: u16 = 27;
+    pub const TRAP_BLIND: u16 = 28;
+    pub const TRAP_CONFUSE: u16 = 29;
+    pub const TRAP_POISON: u16 = 30;
+    pub const TRAP_SLEEP: u16 = 31;
+
+    pub const TRAP_FEATS: [u16; 16] = [
+        TRAP_TRAPDOOR,
+        TRAP_PIT,
+        TRAP_SPIKED_PIT,
+        TRAP_POISON_PIT,
+        TRAP_TY_CURSE,
+        TRAP_TELEPORT,
+        TRAP_FIRE,
+        TRAP_ACID,
+        TRAP_SLOW,
+        TRAP_LOSE_STR,
+        TRAP_LOSE_DEX,
+        TRAP_LOSE_CON,
+        TRAP_BLIND,
+        TRAP_CONFUSE,
+        TRAP_POISON,
+        TRAP_SLEEP,
+    ];
 }
 
 static TABLE: OnceLock<FeatTable> = OnceLock::new();
