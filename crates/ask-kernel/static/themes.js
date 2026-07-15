@@ -9,6 +9,7 @@
  * - Solarized: https://ethanschoonover.com/solarized/
  * - Dracula: https://draculatheme.com/
  * - Everforest (soft forest): common terminal/editor ports
+ * - Qud Viridian: Caves of Qud terminal palette (ANSI + Solarized-ish teal)
  */
 
 /** @typedef {{
@@ -304,6 +305,56 @@ const THEMES = [
       iron: "#7fbbb3",
       hut: "#e69875",
       entityBg: "#3d484d",
+    },
+  },
+  {
+    // Caves of Qud — Viridian terminal palette (user-provided 16-color map)
+    id: "qud-viridian",
+    name: "Qud Viridian",
+    ui: {
+      bg: "#0f3b3a",
+      hud: "#b1c9c3",
+      hudMuted: "#77bfcf",
+      online: "#00c420",
+      offline: "#f15f22",
+    },
+    void: "#0f3b3a",
+    // frog letters → Qud ANSI-ish colors
+    letters: {
+      D: "#0f3b3a", // black / bg
+      d: "#155352", // bright black
+      s: "#155352",
+      w: "#b1c9c3", // white normal (fungal grey text)
+      W: "#ffffff", // bright white
+      b: "#0048bd", // deep sea blue
+      B: "#0096ff", // cyber sky blue
+      g: "#009403", // jungle green
+      G: "#00c420", // neon green
+      r: "#a64a2e", // rust red
+      R: "#f15f22", // fire orange-red
+      o: "#e99f10", // amber / orange
+      y: "#cfc041", // bright lemon
+      u: "#b154cf", // radiation purple (brown slot → magenta family)
+      U: "#b1c9c3",
+      v: "#da5bd6", // mutant pink
+      L: "#00c420", // leafy / int green
+      l: "#40a4b9", // wetland cyan
+    },
+    cellBg(letter, ch) {
+      if (ch === "~" && "bB".includes(letter)) return "#0a2a32"; // water
+      if (ch === "~" && "rRo".includes(letter)) return "#2a1810"; // lava
+      if (ch === "#") return "#0c2e2d"; // walls slightly deeper teal
+      if (letter === "g" || letter === "L" || letter === "G") return "#0d3328";
+      if (letter === "u" || letter === "v") return "#1a2438";
+      if (letter === "y" || letter === "o") return "#1a2e24";
+      return "#0f3b3a";
+    },
+    entities: {
+      agent: "#cfc041", // bright yellow — scannable
+      tree: "#00c420",
+      iron: "#77bfcf",
+      hut: "#e99f10",
+      entityBg: "#155352",
     },
   },
 ];
