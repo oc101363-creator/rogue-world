@@ -13,10 +13,12 @@ pub mod grid;
 pub mod memory;
 pub mod org;
 pub mod persist;
+pub mod serve;
 pub mod skill;
 pub mod systems;
 pub mod tick;
 pub mod view;
+pub mod viewer;
 pub mod world;
 
 pub use config::Config;

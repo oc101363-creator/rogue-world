@@ -10,11 +10,16 @@ Inspired by FrogComposband/Angband **simulation structure** (tick, grid, actionâ
 
 ```bash
 # needs recent Rust stable (1.78+)
+export PATH="$HOME/.cargo/bin:$PATH"
 cargo test -p ask-kernel
 cargo run -p ask-kernel -- --steps 40
 cargo run -p ask-kernel -- --watch --tick-ms 200
 cargo run -p ask-kernel -- --steps 20 --save data/world.json
 cargo run -p ask-kernel -- --load data/world.json --steps 10
+
+# Web viewer (rot.js) + live mock agent
+cargo run -p ask-kernel -- --serve --port 8080 --tick-ms 250
+# open http://127.0.0.1:8080/
 ```
 
 ## Docs

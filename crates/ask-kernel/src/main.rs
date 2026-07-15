@@ -6,24 +6,31 @@ use std::thread;
 use std::time::Duration;
 
 use ask_kernel::config::Config;
+use ask_kernel::events::EventBuf;
 use ask_kernel::persist;
+use ask_kernel::serve;
 use ask_kernel::tick::Sim;
 use ask_kernel::view;
 use ask_kernel::world::KernelWorld;
-use ask_kernel::events::EventBuf;
 
 fn usage() -> ! {
     eprintln!(
         "ask-kernel — Agent Simulation Kernel
 
 Usage:
-  ask-kernel [--steps N] [--watch] [--tick-ms MS] [--save PATH] [--load PATH] [--seed N]
+  ask-kernel [--steps N] [--watch] [--serve] [--port N] [--tick-ms MS]
+             [--save PATH] [--load PATH] [--seed N]
+
+Modes:
+  --steps N     run N ticks and print ASCII (default 30)
+  --watch       live terminal ASCII
+  --serve       HTTP + WebSocket viewer (default port 8080)
 
 Examples:
   ask-kernel --steps 40
   ask-kernel --watch --tick-ms 200
+  ask-kernel --serve --port 8080 --tick-ms 250
   ask-kernel --steps 20 --save data/world.json
-  ask-kernel --load data/world.json --steps 10
 "
     );
     process::exit(1);
@@ -32,6 +39,8 @@ Examples:
 fn main() {
     let mut steps: Option<u64> = None;
     let mut watch = false;
+    let mut serve_mode = false;
+    let mut port: u16 = 8080;
     let mut tick_ms: u64 = 200;
     let mut save_path: Option<String> = None;
     let mut load_path: Option<String> = None;
@@ -47,6 +56,11 @@ fn main() {
                 steps = Some(args.get(i).and_then(|s| s.parse().ok()).unwrap_or(30));
             }
             "--watch" => watch = true,
+            "--serve" => serve_mode = true,
+            "--port" => {
+                i += 1;
+                port = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(8080);
+            }
             "--tick-ms" => {
                 i += 1;
                 tick_ms = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(200);
@@ -74,6 +88,15 @@ fn main() {
     let mut cfg = Config::default();
     cfg.seed = seed;
 
+    if serve_mode {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        if let Err(e) = rt.block_on(serve::run_server(port, tick_ms, cfg)) {
+            eprintln!("serve failed: {e:#}");
+            process::exit(4);
+        }
+        return;
+    }
+
     let kernel = if let Some(path) = &load_path {
         match persist::load_from_path(path) {
             Ok(k) => {
@@ -95,7 +118,6 @@ fn main() {
         eprintln!("watch mode — Ctrl+C to stop");
         loop {
             sim.step();
-            // clear-ish
             print!("\x1B[2J\x1B[H");
             print!("{}", view::render(&mut sim.kernel.world));
             let ev = sim.kernel.world.resource_mut::<EventBuf>().drain();
