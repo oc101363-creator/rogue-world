@@ -65,6 +65,24 @@ pub enum GameEvent {
         depth: u32,
         seed: u64,
     },
+    MonsterMoved {
+        entity: u64,
+        from: (i32, i32),
+        to: (i32, i32),
+    },
+    MonsterAttacked {
+        monster: u64,
+        target: u64,
+        damage: i32,
+        target_hp: i32,
+        name: String,
+    },
+    ItemPickedUp {
+        entity: u64,
+        item: u64,
+        name: String,
+        at: (i32, i32),
+    },
 }
 
 #[derive(Resource, Default, Debug)]

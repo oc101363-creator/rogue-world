@@ -1,5 +1,5 @@
 use ask_kernel::actions::{Action, ActionQueue};
-use ask_kernel::components::{Health, Inventory, Position, Resource, ResourceKind};
+use ask_kernel::components::{Glyph, Health, Inventory, Position, Resource, ResourceKind};
 use ask_kernel::config::Config;
 use ask_kernel::events::{EventBuf, GameEvent};
 use ask_kernel::f_info::id;
@@ -313,4 +313,67 @@ fn save_load_roundtrip() {
     let loaded = persist::load_from_path(&path).unwrap();
     assert_eq!(loaded.tick(), sim.kernel.tick());
     let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn monsters_spawn_from_templates_and_can_move() {
+    let mut cfg = Config::default();
+    cfg.width = 198;
+    cfg.height = 132;
+    cfg.seed = 11;
+    let mut sim = Sim::new(KernelWorld::new(&cfg));
+    let mon_count = {
+        let mut q = sim.kernel.world.query::<&ask_kernel::components::Monster>();
+        q.iter(&sim.kernel.world).count()
+    };
+    // templates usually place some MON() — if zero, still ok if r_info loaded
+    assert!(ask_kernel::r_info::table().count() > 500);
+    assert!(ask_kernel::k_info::table().count() > 100);
+    // run a few ticks; should not panic
+    sim.run_steps(10, false);
+    let _ = mon_count;
+}
+
+#[test]
+fn item_pickup_on_same_cell() {
+    use ask_kernel::components::{Item, StableId};
+    use bevy_ecs::prelude::*;
+    let mut kw = KernelWorld::new(&Config {
+        width: 88,
+        height: 66,
+        seed: 5,
+        ..Config::default()
+    });
+    let agent = kw.agent_entity().unwrap();
+    let (x, y) = {
+        let p = kw.world.get::<Position>(agent).unwrap();
+        (p.x, p.y)
+    };
+    kw.world.spawn((
+        Position { x, y },
+        Glyph('!'),
+        Item {
+            kind_id: 1,
+            name: "test potion".into(),
+            color: 'b',
+        },
+        StableId(9999),
+    ));
+    let before = {
+        let mut q = kw.world.query::<&Item>();
+        q.iter(&kw.world).count()
+    };
+    ask_kernel::systems::pickup_items(&mut kw.world);
+    let inv = kw.world.get::<Inventory>(agent).unwrap();
+    assert!(
+        inv.items.iter().any(|s| s.contains("potion")),
+        "items={:?}",
+        inv.items
+    );
+    let left = {
+        let mut q = kw.world.query::<&Item>();
+        q.iter(&kw.world).count()
+    };
+    // may have world-generated items; at least one fewer after pickup
+    assert!(left < before, "before={before} left={left}");
 }

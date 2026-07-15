@@ -70,7 +70,7 @@ impl KernelWorld {
             let mut q = self.world.query::<(&Inventory, &Health, &StableId)>();
             q.iter(&self.world)
                 .next()
-                .map(|(inv, hp, id)| (*inv, *hp, id.0))
+                .map(|(inv, hp, id)| (inv.clone(), *hp, id.0))
         };
 
         let mut cfg = Config::default();

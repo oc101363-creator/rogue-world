@@ -151,7 +151,11 @@ pub fn restore(snap: WorldSnapshot) -> KernelWorld {
                     Agent,
                     Position { x, y },
                     Glyph('A'),
-                    Inventory { wood, iron },
+                    Inventory {
+                        wood,
+                        iron,
+                        items: Vec::new(),
+                    },
                     StableId(id),
                 ));
             }

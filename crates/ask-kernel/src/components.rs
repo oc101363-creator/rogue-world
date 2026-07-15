@@ -13,10 +13,12 @@ pub struct Glyph(pub char);
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct Agent;
 
-#[derive(Component, Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Inventory {
     pub wood: u32,
     pub iron: u32,
+    /// Picked-up object kind ids / names (frog pack spirit, simplified).
+    pub items: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

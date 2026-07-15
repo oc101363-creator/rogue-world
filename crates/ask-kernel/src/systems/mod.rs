@@ -1,5 +1,7 @@
 pub mod build;
 pub mod harvest;
+pub mod items;
+pub mod monster;
 pub mod movement;
 pub mod terrain;
 
@@ -14,6 +16,9 @@ use self::build::apply_build_hut;
 use self::harvest::apply_harvest;
 use self::movement::apply_move;
 use self::terrain::{apply_close_door, apply_open_door, apply_use_stairs};
+
+pub use self::items::pickup_items_system as pickup_items;
+pub use self::monster::process_monsters_system as process_monsters;
 
 /// Apply all queued actions (sorted by entity index for determinism).
 pub fn apply_actions_system(world: &mut World) {

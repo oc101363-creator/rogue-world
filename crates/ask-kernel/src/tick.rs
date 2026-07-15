@@ -7,7 +7,9 @@ use crate::agents::{mock::MockPolicy, AgentPolicy};
 use crate::components::Agent;
 use crate::events::EventBuf;
 use crate::systems::terrain::PendingLevelChange;
-use crate::systems::{advance_tick_system, apply_actions_system, begin_tick_system};
+use crate::systems::{
+    advance_tick_system, apply_actions_system, begin_tick_system, pickup_items, process_monsters,
+};
 use crate::view;
 use crate::world::{KernelConfig, KernelWorld};
 
@@ -45,11 +47,16 @@ impl Sim {
 
         apply_actions_system(world);
 
+        // pickup after agent move (same cell as items)
+        pickup_items(&mut self.kernel.world);
+
+        // frog process_monsters phase
+        process_monsters(&mut self.kernel.world);
+
         // Stairs: rebuild level if requested this tick
-        let pending = world.remove_resource::<PendingLevelChange>();
+        let pending = self.kernel.world.remove_resource::<PendingLevelChange>();
         if let Some(p) = pending {
-            let hut = world.resource::<KernelConfig>().hut_wood_cost;
-            // amounts from defaults for now
+            let hut = self.kernel.world.resource::<KernelConfig>().hut_wood_cost;
             self.kernel.change_level(p.seed, p.depth, hut, 4, 4);
         }
 
