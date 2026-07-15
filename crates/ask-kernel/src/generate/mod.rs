@@ -7,6 +7,7 @@
 //!
 //! Feat ids are always real `f_info` N: numbers.
 
+mod alloc;
 mod features;
 mod rooms;
 mod tunnel;
@@ -17,8 +18,9 @@ use crate::grid::Grid;
 
 pub use rooms::Room;
 
+use alloc::{alloc_monsters, alloc_objects, fill_trap_room};
 use features::{alloc_traps, destroy_level, maybe_maze_level, stamp_maze_vault};
-use rooms::{generate_rooms, DunRooms};
+use rooms::{generate_rooms, DunRooms, RoomKind};
 use tunnel::{build_tunnel, correct_dir, DunTunnel};
 use crate::vaults::{self, TemplateRng};
 
@@ -238,6 +240,21 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
         &mut items,
     );
 
+    // trap rooms (build_type14): denser traps inside trap-kind rooms
+    for r in &rooms {
+        if r.kind == RoomKind::Trap {
+            fill_trap_room(
+                &mut feats,
+                w,
+                r.x1,
+                r.y1,
+                r.x2,
+                r.y2,
+                &mut rng,
+            );
+        }
+    }
+
     if destroyed {
         destroy_level(&mut feats, w, h, &mut rng);
     }
@@ -260,6 +277,11 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
     };
 
     let (agent, trees, irons) = place_objects(&grid, &rooms, cfg, &mut rng);
+
+    // frog _cave_gen_monsters / _cave_gen_objects (extra fill)
+    let depth = 0u32; // starting depth; Sim can re-gen with higher later
+    alloc_monsters(&grid, depth, &mut rng, &mut monsters);
+    alloc_objects(&grid, depth, &mut rng, &mut items);
 
     GeneratedLevel {
         grid,

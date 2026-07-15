@@ -23,6 +23,8 @@ pub enum RoomKind {
     Overlap, // type2
     Cavern,  // type9-ish organic
     Vault,   // lesser vault spirit: thick rim + rubble interior
+    Trap,    // type14 trap room
+    Crypt,   // type12 crypt-ish pillars + rubble
 }
 
 pub struct DunRooms {
@@ -42,28 +44,36 @@ pub fn generate_rooms(cave: &mut Cave, rng: &mut Rng) -> DunRooms {
     // Aim to attempt rooms on ~85% of blocks (minus edge friction).
     let mut dun_rooms = (blocks * 85 / 100).max(12).min(blocks - 2);
 
-    // More caverns/overlaps → larger open regions
-    // Normal 40, Overlap 30, Cavern 25, Vault 5
+    // Weights inspired by frog room_build_order / room_info_normal
+    // Normal 35, Overlap 20, Cavern 20, Vault 8, Trap 10, Crypt 7
     let mut want_normal = 0;
     let mut want_overlap = 0;
     let mut want_cavern = 0;
     let mut want_vault = 0;
+    let mut want_trap = 0;
+    let mut want_crypt = 0;
     for _ in 0..dun_rooms {
         let r = rng.randint0(100);
-        if r < 40 {
+        if r < 35 {
             want_normal += 1;
-        } else if r < 70 {
+        } else if r < 55 {
             want_overlap += 1;
-        } else if r < 95 {
+        } else if r < 75 {
             want_cavern += 1;
-        } else {
+        } else if r < 83 {
             want_vault += 1;
+        } else if r < 93 {
+            want_trap += 1;
+        } else {
+            want_crypt += 1;
         }
     }
 
     let mut rooms = Vec::new();
     // frog room_build_order: rarer / larger first
     build_many(cave, &mut room_map, &mut rooms, rng, want_vault, RoomKind::Vault);
+    build_many(cave, &mut room_map, &mut rooms, rng, want_crypt, RoomKind::Crypt);
+    build_many(cave, &mut room_map, &mut rooms, rng, want_trap, RoomKind::Trap);
     build_many(cave, &mut room_map, &mut rooms, rng, want_cavern, RoomKind::Cavern);
     build_many(cave, &mut room_map, &mut rooms, rng, want_overlap, RoomKind::Overlap);
     build_many(cave, &mut room_map, &mut rooms, rng, want_normal, RoomKind::Normal);
@@ -93,6 +103,8 @@ fn build_many(
             RoomKind::Overlap => build_type2(cave, room_map, rng),
             RoomKind::Cavern => build_type_cavern(cave, room_map, rng),
             RoomKind::Vault => build_type_vault(cave, room_map, rng),
+            RoomKind::Trap => build_type_trap(cave, room_map, rng),
+            RoomKind::Crypt => build_type_crypt(cave, room_map, rng),
         };
         if let Some(r) = ok {
             rooms.push(r);
@@ -426,4 +438,30 @@ fn build_type_vault(cave: &mut Cave, room_map: &mut [Vec<bool>], rng: &mut Rng) 
         cy: (y1 + y2) / 2,
         kind: RoomKind::Vault,
     })
+}
+
+/// Frog build_type14 spirit — normal room marked Trap (feats filled later).
+fn build_type_trap(cave: &mut Cave, room_map: &mut [Vec<bool>], rng: &mut Rng) -> Option<Room> {
+    let mut r = build_type1(cave, room_map, rng)?;
+    r.kind = RoomKind::Trap;
+    Some(r)
+}
+
+/// Frog crypt spirit — pillars + inner walls like a burial chamber.
+fn build_type_crypt(cave: &mut Cave, room_map: &mut [Vec<bool>], rng: &mut Rng) -> Option<Room> {
+    let mut r = build_type1(cave, room_map, rng)?;
+    r.kind = RoomKind::Crypt;
+    // dense pillar grid
+    let mut y = r.y1 + 2;
+    while y <= r.y2 - 2 {
+        let mut x = r.x1 + 2;
+        while x <= r.x2 - 2 {
+            if cave.get(x, y) == Cell::Room && rng.percent(70) {
+                cave.set(x, y, Cell::Inner);
+            }
+            x += 2;
+        }
+        y += 2;
+    }
+    Some(r)
 }
