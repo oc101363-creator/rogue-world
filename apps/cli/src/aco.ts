@@ -14,6 +14,7 @@ Usage:
   aco status
   aco observe [--agent <id>]
   aco map
+  aco watch [--ms 500] [--agent <id>]   # live terminal roguelike view
   aco events [--last N]
   aco focus <agentId>
   aco act move --dx <n> --dy <n> [--agent <id>] [--tick <n>]
@@ -134,6 +135,97 @@ async function cmdFocus(agentId: string): Promise<void> {
   printJson(json, status);
 }
 
+/**
+ * Live terminal view (roguelike-style): clear + redraw map each interval.
+ * Does not take input — World still advances via agents/CLI act elsewhere.
+ * Ctrl+C to quit.
+ */
+async function cmdWatch(
+  agent: string,
+  intervalMs: number,
+): Promise<void> {
+  const clear =
+    process.platform === "win32" ? "\x1Bc" : "\x1B[2J\x1B[H";
+
+  const frame = async () => {
+    const statusRes = await request("GET", "/api/status");
+    const mapRes = await request("GET", "/api/map");
+    const obsRes = await request(
+      "GET",
+      `/api/observe?agentId=${encodeURIComponent(agent)}`,
+    );
+    const eventsRes = await request("GET", "/api/events?last=8");
+
+    const status =
+      statusRes.json && typeof statusRes.json === "object"
+        ? (statusRes.json as Record<string, unknown>)
+        : {};
+    const obs =
+      obsRes.json && typeof obsRes.json === "object"
+        ? (obsRes.json as {
+            self?: { x?: number; y?: number; inventory?: { ore?: number } };
+            focused?: boolean;
+            tick?: number;
+          })
+        : {};
+    const events =
+      eventsRes.json &&
+      typeof eventsRes.json === "object" &&
+      Array.isArray((eventsRes.json as { events?: unknown }).events)
+        ? (
+            eventsRes.json as {
+              events: Array<{ type: string; tick?: number }>;
+            }
+          ).events
+        : [];
+
+    const mapText =
+      mapRes.status < 400
+        ? mapRes.text.endsWith("\n")
+          ? mapRes.text
+          : mapRes.text + "\n"
+        : "(map unavailable)\n";
+
+    const self = obs.self ?? {};
+    const inv = self.inventory?.ore ?? 0;
+    const lines = [
+      "ACO terminal view  (Ctrl+C quit)  legend: # wall  . floor  M mine  A agent  @ focus",
+      `tick=${status.tick ?? obs.tick ?? "?"}  decision=${status.decisionTick ?? "?"}  agent=${agent}  pos=(${self.x ?? "?"},${self.y ?? "?"})  ore=${inv}  focused=${obs.focused ?? false}`,
+      "",
+      mapText.trimEnd(),
+      "",
+      "recent events:",
+      ...events
+        .slice(-8)
+        .map((e) => `  t${e.tick ?? "?"} ${e.type}`),
+      "",
+    ];
+
+    process.stdout.write(clear + lines.join("\n") + "\n");
+  };
+
+  // first frame immediately
+  await frame();
+  const timer = setInterval(() => {
+    void frame().catch((err) => {
+      console.error(
+        "\nwatch error:",
+        err instanceof Error ? err.message : err,
+      );
+    });
+  }, intervalMs);
+
+  await new Promise<void>((resolve) => {
+    const stop = () => {
+      clearInterval(timer);
+      process.stdout.write("\n");
+      resolve();
+    };
+    process.on("SIGINT", stop);
+    process.on("SIGTERM", stop);
+  });
+}
+
 async function cmdAct(
   actionType: string,
   flags: Record<string, string | boolean>,
@@ -197,6 +289,14 @@ async function main(): Promise<void> {
     case "map":
       await cmdMap();
       break;
+    case "watch": {
+      const agent =
+        (typeof flags.agent === "string" && flags.agent) || DEFAULT_AGENT;
+      const ms =
+        typeof flags.ms === "string" ? Number(flags.ms) || 500 : 500;
+      await cmdWatch(agent, Math.max(100, ms));
+      break;
+    }
     case "events": {
       const last =
         typeof flags.last === "string" ? Number(flags.last) || 20 : 20;
