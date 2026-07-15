@@ -1,0 +1,16 @@
+node_modules/
+dist/
+data/
+*.db
+.DS_Store
+.env
+.env.*
+apps/web/dist/
+apps/world/dist/
+packages/protocol/dist/
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.log
+.vite/
