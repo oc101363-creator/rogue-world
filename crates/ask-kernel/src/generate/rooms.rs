@@ -175,20 +175,37 @@ fn build_type1(cave: &mut Cave, room_map: &mut [Vec<bool>], rng: &mut Rng) -> Op
         return None;
     }
 
-    // full floor under room (+1 margin lit as room floor then outer walls)
-    for y in (y1 - 1)..=(y2 + 1) {
-        for x in (x1 - 1)..=(x2 + 1) {
+    // Floor interior; outer ring is irregular (not a perfect rectangle wireframe)
+    for y in y1..=y2 {
+        for x in x1..=x2 {
             cave.set(x, y, Cell::Room);
         }
     }
-    // outer walls
+    // Ragged perimeter: 1–2 cell thick rock with random gaps/juts
     for y in (y1 - 1)..=(y2 + 1) {
-        cave.set(x1 - 1, y, Cell::Outer);
-        cave.set(x2 + 1, y, Cell::Outer);
-    }
-    for x in (x1 - 1)..=(x2 + 1) {
-        cave.set(x, y1 - 1, Cell::Outer);
-        cave.set(x, y2 + 1, Cell::Outer);
+        for x in (x1 - 1)..=(x2 + 1) {
+            let on_edge = y == y1 - 1 || y == y2 + 1 || x == x1 - 1 || x == x2 + 1;
+            let near_edge = y <= y1 || y >= y2 || x <= x1 || x >= x2;
+            if !on_edge && !near_edge {
+                continue;
+            }
+            if !cave.in_bounds(x, y) {
+                continue;
+            }
+            if on_edge {
+                // sometimes skip → natural opening; sometimes double-thick rock
+                if rng.percent(18) {
+                    cave.set(x, y, Cell::Room);
+                } else if rng.percent(40) {
+                    cave.set(x, y, Cell::Solid);
+                } else {
+                    cave.set(x, y, Cell::Outer);
+                }
+            } else if near_edge && rng.percent(22) {
+                // juts of rock into room / soft corners
+                cave.set(x, y, Cell::Solid);
+            }
+        }
     }
 
     // occasional pillar room (1/20)

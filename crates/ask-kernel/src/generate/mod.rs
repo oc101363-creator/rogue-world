@@ -206,6 +206,8 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
 
     // Open residual solid pockets: convert rock near floors to open space
     open_rock_pockets(&mut cave, &mut rng);
+    // Break rectangular "wireframe" walls into piled/clumpy rock
+    organicize_rock(&mut cave, &mut rng);
 
     // frog: occasional destroyed level after rooms (rockier — keep rarer for open maps)
     let destroyed = !maze_level && rng.percent(6);
@@ -286,6 +288,122 @@ fn open_rock_pockets(cave: &mut Cave, rng: &mut Rng) {
     }
 }
 
+fn is_rock(c: Cell) -> bool {
+    matches!(c, Cell::Solid | Cell::Outer | Cell::Inner)
+}
+
+fn is_open(c: Cell) -> bool {
+    matches!(c, Cell::Room | Cell::Tunnel)
+}
+
+/// Break straight 1-cell wall rings into irregular rock piles / blobs.
+fn organicize_rock(cave: &mut Cave, rng: &mut Rng) {
+    // 1) Nibble rectangular Outer walls: random cells become floor or thicken into Solid
+    let mut nibble = Vec::new();
+    let mut thicken = Vec::new();
+    for y in 2..cave.h - 2 {
+        for x in 2..cave.w - 2 {
+            if cave.get(x, y) != Cell::Outer {
+                continue;
+            }
+            let r = rng.randint0(100);
+            if r < 35 {
+                nibble.push((x, y)); // open gap / ragged edge
+            } else if r < 55 {
+                thicken.push((x, y)); // keep as rock mass
+            }
+        }
+    }
+    for (x, y) in nibble {
+        cave.set(x, y, Cell::Room);
+    }
+    for (x, y) in thicken {
+        cave.set(x, y, Cell::Solid);
+        // pile: randomly add adjacent solid blobs
+        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1)] {
+            if rng.percent(40) {
+                let nx = x + dx;
+                let ny = y + dy;
+                if cave.in_bounds(nx, ny) && is_open(cave.get(nx, ny)) && rng.percent(50) {
+                    // only thicken into solid from outer, don't fill rooms completely
+                    if cave.get(x, y) == Cell::Solid {
+                        // grow rock one step into open sometimes
+                        if rng.percent(30) {
+                            cave.set(nx, ny, Cell::Solid);
+                        }
+                    }
+                } else if cave.in_bounds(nx, ny) && cave.get(nx, ny) == Cell::Solid {
+                    // ok
+                }
+            }
+        }
+    }
+
+    // 2) Cellular automata on rock vs open — smooth into clumps, kill 1-wide lines
+    for _ in 0..4 {
+        let mut next: Vec<(i32, i32, Cell)> = Vec::new();
+        for y in 2..cave.h - 2 {
+            for x in 2..cave.w - 2 {
+                let cur = cave.get(x, y);
+                if matches!(cur, Cell::Room) {
+                    // don't destroy room interiors en masse
+                    continue;
+                }
+                let mut rock_n = 0;
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+                        if is_rock(cave.get(x + dx, y + dy)) {
+                            rock_n += 1;
+                        }
+                    }
+                }
+                if is_rock(cur) {
+                    // isolated / line rock → open
+                    if rock_n <= 2 {
+                        next.push((x, y, Cell::Tunnel));
+                    } else if rock_n >= 5 && cur == Cell::Outer {
+                        next.push((x, y, Cell::Solid)); // merge into pile
+                    }
+                } else if cur == Cell::Tunnel {
+                    // fill thin corridors' jagged sides into soft rock clumps sometimes
+                    if rock_n >= 6 && rng.percent(25) {
+                        next.push((x, y, Cell::Solid));
+                    }
+                }
+            }
+        }
+        for (x, y, c) in next {
+            cave.set(x, y, c);
+        }
+    }
+
+    // 3) Scatter rock piles in open areas (boulder clumps) so rock isn't only borders
+    for _ in 0..(cave.w * cave.h / 400).max(20) {
+        let cx = rng.rand_range(3, cave.w - 3);
+        let cy = rng.rand_range(3, cave.h - 3);
+        if !is_open(cave.get(cx, cy)) {
+            continue;
+        }
+        let rad = rng.rand_range(1, 3);
+        for yy in (cy - rad)..=(cy + rad) {
+            for xx in (cx - rad)..=(cx + rad) {
+                if !cave.in_bounds(xx, yy) {
+                    continue;
+                }
+                if (xx - cx).abs() + (yy - cy).abs() > rad {
+                    continue;
+                }
+                if is_open(cave.get(xx, yy)) && rng.percent(70) {
+                    cave.set(xx, yy, Cell::Solid);
+                }
+            }
+        }
+    }
+}
+
 fn bake_base(cave: &Cave, rng: &mut Rng) -> Vec<u16> {
     let w = cave.w;
     let h = cave.h;
@@ -301,15 +419,15 @@ fn bake_base(cave: &Cave, rng: &mut Rng) -> Vec<u16> {
                     _ => id::FLOOR,
                 },
                 Cell::Tunnel => id::FLOOR,
-                Cell::Outer => id::GRANITE_OUTER,
-                Cell::Inner => id::GRANITE_INNER,
-                Cell::Solid => match rng.randint0(100) {
-                    0..=3 => id::MAGMA_VEIN,
-                    4..=6 => id::QUARTZ_VEIN,
-                    7 => id::RUBBLE,
-                    8 => id::MAGMA_TREASURE,
-                    9 => id::QUARTZ_TREASURE,
-                    10..=11 => id::GRANITE_SOLID,
+                // Outer treated as piled rock (same family as solid), not a distinct wireframe
+                Cell::Outer | Cell::Inner | Cell::Solid => match rng.randint0(100) {
+                    0..=4 => id::MAGMA_VEIN,
+                    5..=8 => id::QUARTZ_VEIN,
+                    9..=12 => id::RUBBLE,
+                    13 => id::MAGMA_TREASURE,
+                    14 => id::QUARTZ_TREASURE,
+                    15..=18 => id::GRANITE_SOLID,
+                    19..=22 => id::GRANITE_INNER,
                     _ => id::GRANITE,
                 },
             };
