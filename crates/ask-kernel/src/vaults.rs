@@ -1,26 +1,29 @@
-//! Load Frog `vaults.txt` room templates (M: maps).
+//! Frog room/vault templates: `vaults.txt` (VAULT) + `rooms.txt` (ROOM).
 //!
-//! Map letters follow classic Angband vault convention (subset):
-//!   `#` wall  `%` quartz/outer  `.` floor  `+` door  `'` open door
-//!   `^` trap  `~` water  `<` `>` stairs  `*` treasure wall  `:` rubble
-//!   `,` dirt  `;` grass-ish  spaces ignored as solid fill outside
-//! Monsters/objects letters are treated as floor (ASK has no r_info yet).
+//! Map letters → f_info ids. Monster/object letters become floor until r_info/k_info exist.
 
 use std::sync::OnceLock;
 
 use crate::f_info::id;
 
 const VAULTS_TXT: &str = include_str!("../data/vaults.txt");
+const ROOMS_TXT: &str = include_str!("../data/rooms.txt");
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TemplateKind {
+    LesserVault,
+    GreaterVault,
+    Room,
+}
 
 #[derive(Clone, Debug)]
-pub struct VaultTemplate {
+pub struct MapTemplate {
     pub name: String,
-    pub greater: bool,
-    /// Rows of map letters (ragged OK; padded on stamp)
+    pub kind: TemplateKind,
     pub map: Vec<String>,
 }
 
-impl VaultTemplate {
+impl MapTemplate {
     pub fn height(&self) -> i32 {
         self.map.len() as i32
     }
@@ -30,61 +33,87 @@ impl VaultTemplate {
     }
 }
 
-static VAULTS: OnceLock<Vec<VaultTemplate>> = OnceLock::new();
-
-pub fn table() -> &'static [VaultTemplate] {
-    VAULTS.get_or_init(parse_vaults)
+#[derive(Default)]
+struct Tables {
+    lesser: Vec<MapTemplate>,
+    greater: Vec<MapTemplate>,
+    rooms: Vec<MapTemplate>,
 }
 
-fn parse_vaults() -> Vec<VaultTemplate> {
-    let mut out = Vec::new();
-    let mut name = String::new();
-    let mut greater = false;
-    let mut map: Vec<String> = Vec::new();
-    let mut in_vault = false;
+static TABLES: OnceLock<Tables> = OnceLock::new();
 
-    let flush = |out: &mut Vec<VaultTemplate>,
-                 name: &mut String,
-                 greater: bool,
-                 map: &mut Vec<String>,
-                 in_vault: &mut bool| {
-        if *in_vault && !map.is_empty() {
-            out.push(VaultTemplate {
-                name: std::mem::take(name),
-                greater,
-                map: std::mem::take(map),
-            });
+fn tables() -> &'static Tables {
+    TABLES.get_or_init(|| {
+        let mut t = Tables::default();
+        parse_into(VAULTS_TXT, &mut t, true);
+        parse_into(ROOMS_TXT, &mut t, false);
+        t
+    })
+}
+
+fn parse_into(text: &str, t: &mut Tables, vault_file: bool) {
+    let mut name = String::new();
+    let mut kind: Option<TemplateKind> = None;
+    let mut map: Vec<String> = Vec::new();
+
+    let flush = |t: &mut Tables, name: &mut String, kind: &mut Option<TemplateKind>, map: &mut Vec<String>| {
+        if let Some(k) = kind.take() {
+            if !map.is_empty() {
+                let tmpl = MapTemplate {
+                    name: std::mem::take(name),
+                    kind: k,
+                    map: std::mem::take(map),
+                };
+                match k {
+                    TemplateKind::LesserVault => t.lesser.push(tmpl),
+                    TemplateKind::GreaterVault => t.greater.push(tmpl),
+                    TemplateKind::Room => t.rooms.push(tmpl),
+                }
+            }
         }
-        *in_vault = false;
         map.clear();
         name.clear();
+        *kind = None;
     };
 
-    for line in VAULTS_TXT.lines() {
-        if line.starts_with('N') && line.get(1..2) == Some(":") {
-            flush(&mut out, &mut name, greater, &mut map, &mut in_vault);
-            name = line[2..].to_string();
-            greater = false;
-            in_vault = false;
-        } else if line.starts_with("T:VAULT:") {
-            greater = line.contains("GREATER");
-            in_vault = true;
-        } else if line.starts_with("T:") {
-            // non-vault template in same file style — skip
-            in_vault = false;
-            map.clear();
-        } else if line.starts_with("M:") && in_vault {
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("N:") {
+            flush(t, &mut name, &mut kind, &mut map);
+            name = rest.to_string();
+        } else if let Some(rest) = line.strip_prefix("T:") {
+            // Only keep VAULT / ROOM lines; ignore WILD/AMBUSH for dungeon gen
+            if rest.starts_with("VAULT:GREATER") {
+                kind = Some(TemplateKind::GreaterVault);
+            } else if rest.starts_with("VAULT:LESSER") {
+                kind = Some(TemplateKind::LesserVault);
+            } else if rest.starts_with("ROOM:") {
+                kind = Some(TemplateKind::Room);
+            } else {
+                kind = None;
+                map.clear();
+            }
+        } else if line.starts_with("M:") && kind.is_some() {
             map.push(line[2..].to_string());
+        } else if vault_file {
+            // ignore L:/W: etc.
         }
     }
-    flush(&mut out, &mut name, greater, &mut map, &mut in_vault);
-    out
+    flush(t, &mut name, &mut kind, &mut map);
 }
 
-/// Map a vault letter to a frog feat id (monsters/objects → floor).
+pub fn lesser_vaults() -> &'static [MapTemplate] {
+    &tables().lesser
+}
+pub fn greater_vaults() -> &'static [MapTemplate] {
+    &tables().greater
+}
+pub fn room_templates() -> &'static [MapTemplate] {
+    &tables().rooms
+}
+
 pub fn letter_to_feat(ch: char) -> u16 {
     match ch {
-        ' ' => id::GRANITE_SOLID, // outside padding often space in some vaults
+        ' ' => id::GRANITE_SOLID,
         '#' => id::GRANITE,
         '%' => id::QUARTZ_VEIN,
         '.' => id::FLOOR,
@@ -92,7 +121,7 @@ pub fn letter_to_feat(ch: char) -> u16 {
         ';' => id::GRASS,
         '+' => id::CLOSED_DOOR,
         '\'' => id::OPEN_DOOR,
-        '^' => id::TRAP_PIT, // generic visible trap; alloc may diversify later
+        '^' => id::TRAP_PIT,
         '~' => id::SHALLOW_WATER,
         '<' => id::UP_STAIR,
         '>' => id::DOWN_STAIR,
@@ -100,46 +129,67 @@ pub fn letter_to_feat(ch: char) -> u16 {
         '&' => id::MAGMA_TREASURE,
         ':' => id::RUBBLE,
         'x' | 'X' => id::GRANITE_INNER,
-        // digits / letters for monsters & objects → open floor
+        'T' => id::TREE,
         _ => id::FLOOR,
     }
 }
 
-/// Stamp vault onto feat grid; top-left at (ox, oy). Returns false if OOB.
-pub fn stamp_vault(feats: &mut [u16], w: i32, h: i32, ox: i32, oy: i32, vault: &VaultTemplate) -> bool {
-    let vw = vault.width();
-    let vh = vault.height();
+pub fn stamp_template(
+    feats: &mut [u16],
+    w: i32,
+    h: i32,
+    ox: i32,
+    oy: i32,
+    tmpl: &MapTemplate,
+) -> bool {
+    let vw = tmpl.width();
+    let vh = tmpl.height();
     if ox < 1 || oy < 1 || ox + vw >= w - 1 || oy + vh >= h - 1 {
         return false;
     }
-    for (row_i, row) in vault.map.iter().enumerate() {
+    for (row_i, row) in tmpl.map.iter().enumerate() {
         for (col_i, ch) in row.chars().enumerate() {
             let x = ox + col_i as i32;
             let y = oy + row_i as i32;
-            let feat = letter_to_feat(ch);
-            // don't overwrite permanent border
             let i = (y * w + x) as usize;
             if feats[i] == id::PERMANENT {
                 continue;
             }
-            feats[i] = feat;
+            feats[i] = letter_to_feat(ch);
         }
     }
     true
 }
 
-pub fn pick_vault(rng: &mut impl VaultRng, greater: bool) -> Option<&'static VaultTemplate> {
-    let all = table();
-    let candidates: Vec<_> = all.iter().filter(|v| v.greater == greater).collect();
-    if candidates.is_empty() {
-        return None;
-    }
-    let i = rng.vault_index(candidates.len());
-    Some(candidates[i])
+pub trait TemplateRng {
+    fn pick(&mut self, n: usize) -> usize;
 }
 
-pub trait VaultRng {
-    fn vault_index(&mut self, n: usize) -> usize;
+pub fn pick_lesser(rng: &mut impl TemplateRng) -> Option<&'static MapTemplate> {
+    let t = lesser_vaults();
+    if t.is_empty() {
+        None
+    } else {
+        Some(&t[rng.pick(t.len())])
+    }
+}
+
+pub fn pick_greater(rng: &mut impl TemplateRng) -> Option<&'static MapTemplate> {
+    let t = greater_vaults();
+    if t.is_empty() {
+        None
+    } else {
+        Some(&t[rng.pick(t.len())])
+    }
+}
+
+pub fn pick_room(rng: &mut impl TemplateRng) -> Option<&'static MapTemplate> {
+    let t = room_templates();
+    if t.is_empty() {
+        None
+    } else {
+        Some(&t[rng.pick(t.len())])
+    }
 }
 
 #[cfg(test)]
@@ -147,11 +197,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn loads_vaults() {
-        let t = table();
-        assert!(t.len() >= 100, "vaults={}", t.len());
-        assert!(t.iter().any(|v| v.greater));
-        assert!(t.iter().any(|v| !v.greater));
-        assert!(t.iter().any(|v| v.width() >= 10 && v.height() >= 8));
+    fn loads_vaults_and_rooms() {
+        assert!(lesser_vaults().len() >= 50, "lesser={}", lesser_vaults().len());
+        assert!(greater_vaults().len() >= 50, "greater={}", greater_vaults().len());
+        assert!(room_templates().len() >= 50, "rooms={}", room_templates().len());
     }
 }

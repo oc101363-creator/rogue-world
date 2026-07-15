@@ -20,7 +20,7 @@ pub use rooms::Room;
 use features::{alloc_traps, destroy_level, maybe_maze_level, stamp_maze_vault};
 use rooms::{generate_rooms, DunRooms};
 use tunnel::{build_tunnel, correct_dir, DunTunnel};
-use crate::vaults::{self, VaultRng};
+use crate::vaults::{self, TemplateRng};
 
 #[derive(Clone, Debug)]
 pub struct Rng {
@@ -70,8 +70,8 @@ impl Rng {
     }
 }
 
-impl VaultRng for Rng {
-    fn vault_index(&mut self, n: usize) -> usize {
+impl TemplateRng for Rng {
+    fn pick(&mut self, n: usize) -> usize {
         if n == 0 {
             return 0;
         }
@@ -213,8 +213,8 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
     place_rivers(&mut feats, w, h, &mut rng);
     place_tree_patches(&mut feats, w, h, &mut rng);
 
-    // frog vault templates from vaults.txt (lesser/greater)
-    place_vault_templates(&mut feats, w, h, &rooms, &mut rng);
+    // frog vaults.txt + rooms.txt templates
+    place_templates(&mut feats, w, h, &rooms, &mut rng);
 
     if destroyed {
         destroy_level(&mut feats, w, h, &mut rng);
@@ -488,34 +488,31 @@ fn place_tree_patches(feats: &mut [u16], w: i32, h: i32, rng: &mut Rng) {
     }
 }
 
-/// Stamp 1–3 vaults from frog vaults.txt into free-ish regions.
-fn place_vault_templates(
-    feats: &mut [u16],
-    w: i32,
-    h: i32,
-    rooms: &[Room],
-    rng: &mut Rng,
-) {
-    let _ = vaults::table(); // ensure loaded
-
-    // Always try at least one lesser vault when map is large enough
-    let tries_lesser = if w * h > 20_000 { 3 } else { 2 };
+/// Stamp frog vaults.txt + rooms.txt templates (generate_rooms TEMPLATE path).
+fn place_templates(feats: &mut [u16], w: i32, h: i32, rooms: &[Room], rng: &mut Rng) {
     let tries_greater = if w * h > 40_000 { 2 } else { 1 };
+    let tries_lesser = if w * h > 20_000 { 3 } else { 2 };
+    let tries_room = if w * h > 20_000 { 4 } else { 2 };
 
     for _ in 0..tries_greater {
-        if !rng.percent(45) {
-            continue;
-        }
-        if let Some(v) = vaults::pick_vault(rng, true) {
-            try_stamp(feats, w, h, rooms, rng, v);
+        if rng.percent(50) {
+            if let Some(v) = vaults::pick_greater(rng) {
+                try_stamp(feats, w, h, rooms, rng, v);
+            }
         }
     }
     for _ in 0..tries_lesser {
-        if !rng.percent(70) {
-            continue;
+        if rng.percent(75) {
+            if let Some(v) = vaults::pick_lesser(rng) {
+                try_stamp(feats, w, h, rooms, rng, v);
+            }
         }
-        if let Some(v) = vaults::pick_vault(rng, false) {
-            try_stamp(feats, w, h, rooms, rng, v);
+    }
+    for _ in 0..tries_room {
+        if rng.percent(80) {
+            if let Some(v) = vaults::pick_room(rng) {
+                try_stamp(feats, w, h, rooms, rng, v);
+            }
         }
     }
 }
@@ -526,15 +523,14 @@ fn try_stamp(
     h: i32,
     rooms: &[Room],
     rng: &mut Rng,
-    v: &vaults::VaultTemplate,
+    v: &vaults::MapTemplate,
 ) {
     let vw = v.width();
     let vh = v.height();
     if vw + 4 >= w || vh + 4 >= h {
         return;
     }
-    // Prefer near a random room center, else random
-    for _ in 0..30 {
+    for _ in 0..40 {
         let (ox, oy) = if !rooms.is_empty() && rng.percent(70) {
             let r = &rooms[rng.randint0(rooms.len() as i32) as usize];
             (
@@ -547,7 +543,7 @@ fn try_stamp(
                 rng.rand_range(2, h - vh - 2),
             )
         };
-        if vaults::stamp_vault(feats, w, h, ox, oy, v) {
+        if vaults::stamp_template(feats, w, h, ox, oy, v) {
             return;
         }
     }
