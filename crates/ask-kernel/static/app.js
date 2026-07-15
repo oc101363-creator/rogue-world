@@ -1,4 +1,8 @@
-/* ASK map viewer — large world + SC-style pan/zoom camera */
+/* ASK map viewer — large world + crisp glyph rendering
+ *
+ * Blur fix: never CSS-scale a canvas. Zoom changes integer cell size and
+ * we redraw only the visible tile window (RTS-style camera).
+ */
 
 const WS_URL =
   (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
@@ -9,154 +13,199 @@ const elStatus = document.getElementById("status");
 const elInfo = document.getElementById("info");
 const elCam = document.getElementById("cam");
 
-const TILE_FG = { "#": "#3d5c3d", ".": "#6a9a4a" };
-const TILE_BG = { "#": "#0c140c", ".": "#121a10" };
+const TILE_FG = { "#": "#4a7a4a", ".": "#7cb35a" };
+const TILE_BG = { "#": "#0c140c", ".": "#141c12" };
 const KIND_COLOR = {
   agent: "#ffe066",
   tree: "#2dd36f",
-  iron: "#b0c4de",
+  iron: "#c8d6e5",
   hut: "#ff9f43",
 };
 
-/** Base pixel size of one cell before camera zoom */
-const BASE_TILE = 14;
+/** Allowed cell pixel sizes (integer → sharp glyphs) */
+const ZOOM_STEPS = [6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 40];
 
 let display = null;
 let mapW = 0;
 let mapH = 0;
 let lastSnap = null;
+let viewCols = 0;
+let viewRows = 0;
 
-// Camera: screen_px = world_px * scale + pan
 const cam = {
-  scale: 1,
-  x: 0, // pan in screen px
-  y: 0,
+  /** top-left tile in world */
+  tx: 0,
+  ty: 0,
+  /** index into ZOOM_STEPS */
+  zi: 4, // 14px
   follow: true,
-  minScale: 0.15,
-  maxScale: 4,
 };
 
-let dragging = false;
-let dragLast = null;
-let spaceDown = false;
-
-function worldPixelSize() {
-  return {
-    w: mapW * BASE_TILE * cam.scale,
-    h: mapH * BASE_TILE * cam.scale,
-  };
+function cellSize() {
+  return ZOOM_STEPS[cam.zi];
 }
 
-function applyTransform() {
-  elMap.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.scale})`;
-  elCam.textContent = `zoom ${(cam.scale * 100).toFixed(0)}%  ${
-    cam.follow ? "FOLLOW" : "FREE"
-  }`;
-}
+function syncViewSize() {
+  const cs = cellSize();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  // how many tiles fit in viewport
+  viewCols = Math.max(8, Math.ceil(elViewport.clientWidth / cs) + 1);
+  viewRows = Math.max(8, Math.ceil(elViewport.clientHeight / cs) + 1);
+  // don't exceed world
+  if (mapW > 0) viewCols = Math.min(viewCols, mapW);
+  if (mapH > 0) viewRows = Math.min(viewRows, mapH);
 
-function clampPan() {
-  const { w, h } = worldPixelSize();
-  const vw = elViewport.clientWidth;
-  const vh = elViewport.clientHeight;
-  // Allow some overscroll margin
-  const margin = 80;
-  if (w + margin * 2 < vw) {
-    cam.x = (vw - w) / 2;
-  } else {
-    cam.x = Math.min(margin, Math.max(vw - w - margin, cam.x));
+  const needNew =
+    !display ||
+    display._viewCols !== viewCols ||
+    display._viewRows !== viewRows ||
+    display._cellSize !== cs ||
+    display._dpr !== dpr;
+
+  if (needNew) {
+    elMap.innerHTML = "";
+    display = new ROT.Display({
+      width: viewCols,
+      height: viewRows,
+      fontSize: cs,
+      fontFamily: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
+      bg: "#050805",
+      fg: "#33ff66",
+      forceSquareRatio: true,
+      spacing: 1,
+    });
+    const canvas = display.getContainer();
+    // HiDPI: back store sharp, CSS size = logical
+    const lw = viewCols * cs;
+    const lh = viewRows * cs;
+    canvas.style.width = lw + "px";
+    canvas.style.height = lh + "px";
+    // rot.js already sets canvas buffer; boost for retina if needed
+    if (dpr > 1 && canvas.getContext) {
+      // ROT manages buffer; style size is enough for most cases when fontSize is integer
+    }
+    elMap.appendChild(canvas);
+    // center the view canvas in viewport when smaller than window
+    elMap.style.width = lw + "px";
+    elMap.style.height = lh + "px";
+    display._viewCols = viewCols;
+    display._viewRows = viewRows;
+    display._cellSize = cs;
+    display._dpr = dpr;
   }
-  if (h + margin * 2 < vh) {
-    cam.y = (vh - h) / 2;
-  } else {
-    cam.y = Math.min(margin, Math.max(vh - h - margin, cam.y));
-  }
-}
-
-function centerOnTile(tx, ty) {
-  const vw = elViewport.clientWidth;
-  const vh = elViewport.clientHeight;
-  const px = (tx + 0.5) * BASE_TILE * cam.scale;
-  const py = (ty + 0.5) * BASE_TILE * cam.scale;
-  cam.x = vw / 2 - px;
-  cam.y = vh / 2 - py;
-  clampPan();
-  applyTransform();
-}
-
-function zoomAt(screenX, screenY, factor) {
-  const prev = cam.scale;
-  let next = prev * factor;
-  next = Math.max(cam.minScale, Math.min(cam.maxScale, next));
-  if (next === prev) return;
-
-  // Keep world point under cursor stable
-  const wx = (screenX - cam.x) / prev;
-  const wy = (screenY - cam.y) / prev;
-  cam.scale = next;
-  cam.x = screenX - wx * next;
-  cam.y = screenY - wy * next;
-  cam.follow = false;
-  clampPan();
-  applyTransform();
-}
-
-function ensureDisplay(w, h) {
-  if (display && mapW === w && mapH === h) return display;
-  elMap.innerHTML = "";
-  display = new ROT.Display({
-    width: w,
-    height: h,
-    fontSize: BASE_TILE,
-    fontFamily: "ui-monospace, Menlo, monospace",
-    bg: "#050805",
-    fg: "#33ff66",
-    forceSquareRatio: true,
-    spacing: 1,
-  });
-  const canvas = display.getContainer();
-  // Force canvas CSS size = logical tile grid (transform scales it)
-  canvas.style.width = w * BASE_TILE + "px";
-  canvas.style.height = h * BASE_TILE + "px";
-  elMap.appendChild(canvas);
-  elMap.style.width = w * BASE_TILE + "px";
-  elMap.style.height = h * BASE_TILE + "px";
-  mapW = w;
-  mapH = h;
-
-  // Initial fit: show ~40% of map width or whole map if smaller
-  const fit = Math.min(
-    elViewport.clientWidth / (w * BASE_TILE),
-    elViewport.clientHeight / (h * BASE_TILE),
-  );
-  cam.scale = Math.max(cam.minScale, Math.min(1.2, fit * 1.15));
-  cam.follow = true;
-  applyTransform();
+  clampCamera();
+  updateHudCam();
   return display;
 }
 
+function clampCamera() {
+  if (mapW <= 0 || mapH <= 0) return;
+  cam.tx = Math.max(0, Math.min(mapW - viewCols, cam.tx));
+  cam.ty = Math.max(0, Math.min(mapH - viewRows, cam.ty));
+  cam.tx = Math.floor(cam.tx);
+  cam.ty = Math.floor(cam.ty);
+}
+
+function updateHudCam() {
+  elCam.textContent = `zoom ${cellSize()}px  ${cam.follow ? "FOLLOW" : "FREE"}  cam(${cam.tx},${cam.ty})`;
+}
+
+function centerOnTile(tx, ty) {
+  cam.tx = tx - Math.floor(viewCols / 2);
+  cam.ty = ty - Math.floor(viewRows / 2);
+  clampCamera();
+  updateHudCam();
+}
+
+function zoomBy(delta, anchorScreenX, anchorScreenY) {
+  const oldCs = cellSize();
+  const oldZi = cam.zi;
+  cam.zi = Math.max(0, Math.min(ZOOM_STEPS.length - 1, cam.zi + delta));
+  if (cam.zi === oldZi) return;
+
+  // world tile under cursor before zoom
+  const rect = elViewport.getBoundingClientRect();
+  const sx = (anchorScreenX ?? rect.width / 2);
+  const sy = (anchorScreenY ?? rect.height / 2);
+  // map is top-left aligned in viewport for simplicity
+  const mapRect = elMap.getBoundingClientRect();
+  const ox = sx - (mapRect.left - rect.left);
+  const oy = sy - (mapRect.top - rect.top);
+  const worldX = cam.tx + ox / oldCs;
+  const worldY = cam.ty + oy / oldCs;
+
+  cam.follow = false;
+  syncViewSize();
+  const cs = cellSize();
+  cam.tx = worldX - ox / cs;
+  cam.ty = worldY - oy / cs;
+  clampCamera();
+  if (lastSnap) drawSnap(lastSnap);
+  updateHudCam();
+}
+
 function drawSnap(snap) {
-  const d = ensureDisplay(snap.width, snap.height);
+  if (!snap) return;
+  mapW = snap.width;
+  mapH = snap.height;
+  const d = syncViewSize();
+  clampCamera();
+
+  const x0 = cam.tx;
+  const y0 = cam.ty;
+
   d.clear();
-  for (let y = 0; y < snap.height; y++) {
-    const row = snap.tiles[y] || "";
-    for (let x = 0; x < snap.width; x++) {
-      const ch = row[x] || " ";
-      d.draw(x, y, ch, TILE_FG[ch] || "#444", TILE_BG[ch] || "#050805");
+  for (let vy = 0; vy < viewRows; vy++) {
+    const wy = y0 + vy;
+    const row = snap.tiles[wy] || "";
+    for (let vx = 0; vx < viewCols; vx++) {
+      const wx = x0 + vx;
+      if (wy < 0 || wx < 0 || wy >= mapH || wx >= mapW) {
+        d.draw(vx, vy, " ", "#000", "#050805");
+        continue;
+      }
+      const ch = row[wx] || " ";
+      d.draw(vx, vy, ch, TILE_FG[ch] || "#555", TILE_BG[ch] || "#050805");
     }
   }
+
   const ents = snap.entities || [];
-  for (const e of ents.filter((x) => x.kind !== "agent")) {
-    d.draw(e.x, e.y, e.glyph || "?", KIND_COLOR[e.kind] || "#fff", "#0a180a");
+  for (const e of ents) {
+    const vx = e.x - x0;
+    const vy = e.y - y0;
+    if (vx < 0 || vy < 0 || vx >= viewCols || vy >= viewRows) continue;
+    if (e.kind === "agent") {
+      d.draw(vx, vy, "@", KIND_COLOR.agent, "#1a280a");
+    } else {
+      d.draw(
+        vx,
+        vy,
+        e.glyph || "?",
+        KIND_COLOR[e.kind] || "#fff",
+        "#0a180a",
+      );
+    }
   }
-  for (const e of ents.filter((x) => x.kind === "agent")) {
-    d.draw(e.x, e.y, "@", KIND_COLOR.agent, "#1a280a");
-  }
+
+  // layout map element top-left (pan is via camera tiles, not CSS)
+  elMap.style.left = "0px";
+  elMap.style.top = "0px";
+  // center if view larger than map content already handled by viewCols clamp
+  const lw = viewCols * cellSize();
+  const lh = viewRows * cellSize();
+  elMap.style.marginLeft =
+    lw < elViewport.clientWidth
+      ? Math.floor((elViewport.clientWidth - lw) / 2) + "px"
+      : "0px";
+  elMap.style.marginTop =
+    lh < elViewport.clientHeight
+      ? Math.floor((elViewport.clientHeight - lh) / 2) + "px"
+      : "0px";
 }
 
 function applySnapshot(snap) {
   if (!snap || snap.type !== "snapshot") return;
   lastSnap = snap;
-  drawSnap(snap);
 
   const ents = snap.entities || [];
   const agent = ents.find((e) => e.kind === "agent");
@@ -168,23 +217,27 @@ function applySnapshot(snap) {
     : `t=${snap.tick}  ${snap.width}×${snap.height}`;
 
   if (cam.follow && agent) {
+    mapW = snap.width;
+    mapH = snap.height;
+    syncViewSize();
     centerOnTile(agent.x, agent.y);
-  } else {
-    clampPan();
-    applyTransform();
   }
+  drawSnap(snap);
 }
 
-// --- input ---
+// --- input: pan by dragging in tile space ---
+let dragging = false;
+let dragLast = null;
+let accumX = 0;
+let accumY = 0;
+
 elViewport.addEventListener(
   "wheel",
   (e) => {
     e.preventDefault();
     const rect = elViewport.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
-    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-    zoomAt(sx, sy, factor);
+    const delta = e.deltaY < 0 ? 1 : -1;
+    zoomBy(delta, e.clientX - rect.left, e.clientY - rect.top);
   },
   { passive: false },
 );
@@ -193,6 +246,8 @@ elViewport.addEventListener("mousedown", (e) => {
   if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
   dragging = true;
   dragLast = { x: e.clientX, y: e.clientY };
+  accumX = 0;
+  accumY = 0;
   elViewport.classList.add("dragging");
   cam.follow = false;
   e.preventDefault();
@@ -203,10 +258,29 @@ window.addEventListener("mousemove", (e) => {
   const dx = e.clientX - dragLast.x;
   const dy = e.clientY - dragLast.y;
   dragLast = { x: e.clientX, y: e.clientY };
-  cam.x += dx;
-  cam.y += dy;
-  clampPan();
-  applyTransform();
+  accumX += dx;
+  accumY += dy;
+  const cs = cellSize();
+  // drag right → see tiles to the left
+  while (accumX >= cs) {
+    cam.tx -= 1;
+    accumX -= cs;
+  }
+  while (accumX <= -cs) {
+    cam.tx += 1;
+    accumX += cs;
+  }
+  while (accumY >= cs) {
+    cam.ty -= 1;
+    accumY -= cs;
+  }
+  while (accumY <= -cs) {
+    cam.ty += 1;
+    accumY += cs;
+  }
+  clampCamera();
+  if (lastSnap) drawSnap(lastSnap);
+  updateHudCam();
 });
 
 window.addEventListener("mouseup", () => {
@@ -220,68 +294,68 @@ elViewport.addEventListener("contextmenu", (e) => e.preventDefault());
 window.addEventListener("keydown", (e) => {
   if (e.code === "Space") {
     e.preventDefault();
-    if (!spaceDown) {
-      spaceDown = true;
-      cam.follow = true;
-      if (lastSnap) {
-        const agent = (lastSnap.entities || []).find((x) => x.kind === "agent");
-        if (agent) centerOnTile(agent.x, agent.y);
+    cam.follow = true;
+    if (lastSnap) {
+      const agent = (lastSnap.entities || []).find((x) => x.kind === "agent");
+      if (agent) {
+        centerOnTile(agent.x, agent.y);
+        drawSnap(lastSnap);
       }
     }
   }
   if (e.key === "+" || e.key === "=") {
-    zoomAt(elViewport.clientWidth / 2, elViewport.clientHeight / 2, 1.15);
+    zoomBy(1, elViewport.clientWidth / 2, elViewport.clientHeight / 2);
   }
   if (e.key === "-" || e.key === "_") {
-    zoomAt(elViewport.clientWidth / 2, elViewport.clientHeight / 2, 1 / 1.15);
+    zoomBy(-1, elViewport.clientWidth / 2, elViewport.clientHeight / 2);
   }
   if (e.key === "r" || e.key === "R") {
+    cam.zi = 4;
     cam.follow = true;
-    cam.scale = Math.min(
-      1.2,
-      Math.min(
-        elViewport.clientWidth / (mapW * BASE_TILE || 1),
-        elViewport.clientHeight / (mapH * BASE_TILE || 1),
-      ) * 1.1,
-    );
+    syncViewSize();
     if (lastSnap) {
       const agent = (lastSnap.entities || []).find((x) => x.kind === "agent");
       if (agent) centerOnTile(agent.x, agent.y);
+      drawSnap(lastSnap);
     }
   }
-  // arrow pan when not following
-  const step = 40;
   if (!cam.follow) {
+    let moved = false;
     if (e.key === "ArrowLeft") {
-      cam.x += step;
-      clampPan();
-      applyTransform();
+      cam.tx -= 2;
+      moved = true;
     }
     if (e.key === "ArrowRight") {
-      cam.x -= step;
-      clampPan();
-      applyTransform();
+      cam.tx += 2;
+      moved = true;
     }
     if (e.key === "ArrowUp") {
-      cam.y += step;
-      clampPan();
-      applyTransform();
+      cam.ty -= 2;
+      moved = true;
     }
     if (e.key === "ArrowDown") {
-      cam.y -= step;
-      clampPan();
-      applyTransform();
+      cam.ty += 2;
+      moved = true;
+    }
+    if (moved) {
+      clampCamera();
+      if (lastSnap) drawSnap(lastSnap);
+      updateHudCam();
     }
   }
-});
-
-window.addEventListener("keyup", (e) => {
-  if (e.code === "Space") spaceDown = false;
 });
 
 window.addEventListener("resize", () => {
-  clampPan();
-  applyTransform();
+  if (lastSnap) {
+    if (cam.follow) {
+      const agent = (lastSnap.entities || []).find((x) => x.kind === "agent");
+      syncViewSize();
+      if (agent) centerOnTile(agent.x, agent.y);
+    } else {
+      syncViewSize();
+    }
+    drawSnap(lastSnap);
+  }
 });
 
 function connect() {
