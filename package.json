@@ -6,6 +6,7 @@
     "build": "pnpm -r build",
     "dev:world": "pnpm --filter @aco/world dev",
     "dev:web": "pnpm --filter @aco/web dev",
+    "aco": "pnpm --filter @aco/cli exec tsx src/aco.ts",
     "test": "pnpm -r test"
   }
 }

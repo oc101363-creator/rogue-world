@@ -11,11 +11,20 @@ Player → select agent → World → observation → Agent Runtime → actions 
 | Feature | Status |
 |---------|--------|
 | Grid map (16×12 ASCII / rot.js) | ✅ |
-| Agent connect (Pi-style JSON over WS) | ✅ |
+| **HTTP API + `aco` CLI** (primary agent surface) | ✅ |
+| **`aco-play` Skill** — give any agent the skill to play | ✅ |
 | Agent act (`move`, `harvest`, `idle`, `say`) | ✅ |
-| Player select agent → focus in observation | ✅ |
-| Mock policy + optional LLM mode | ✅ |
+| Player select agent → focus | ✅ |
+| Optional WS agent runtime (mock / LLM) | ✅ |
 | SQLite event log | ✅ |
+
+### Primary integration path
+
+```text
+Player's Agent  +  skills/aco-play  +  aco CLI  →  World HTTP API
+```
+
+You do **not** need a custom runtime to plug an agent in: install/copy `skills/aco-play`, point the agent at a running World, and let it `observe` / `act`.
 
 ## Spec & plan
 
@@ -35,36 +44,38 @@ pnpm --filter @aco/protocol build
 python3 -m pip install -r apps/agent-runtime/requirements.txt
 ```
 
-## Run (three terminals)
+## Run
 
 ```bash
-# 1) World Server (port 8080)
+# 1) World Server (port 8080) — required
 pnpm dev:world
 
-# 2) Agent Runtime (mock — no API key needed)
-cd apps/agent-runtime
-python3 -m aco_runtime --mode mock
-
-# 3) Frontend
+# 2) Frontend (optional observer)
 pnpm dev:web
 # → http://localhost:5173
+
+# 3) Control via CLI (any agent / human / script)
+pnpm aco status
+pnpm aco map
+pnpm aco observe
+pnpm aco act move --dx 1 --dy 0
+pnpm aco act harvest
+pnpm aco focus agent-1
 ```
 
-Or use the helper (World + mock agent; start web separately):
+### Give a player agent the skill
+
+Copy or link [`skills/aco-play`](skills/aco-play) into the agent's skill directory.  
+The skill teaches the observe → decide → act loop over `aco`.
+
+### Optional: built-in mock / LLM runtime (WebSocket)
+
+Still available if you want a process that plays without an external agent:
 
 ```bash
-chmod +x scripts/dev.sh
-./scripts/dev.sh
-# another terminal:
-pnpm dev:web
-```
-
-### LLM mode (optional)
-
-```bash
-export ACO_LLM_API_KEY=sk-...
-export ACO_LLM_BASE_URL=https://api.openai.com/v1   # or compatible gateway
-export ACO_LLM_MODEL=gpt-4o-mini
+cd apps/agent-runtime && python3 -m aco_runtime --mode mock
+# or
+export ACO_LLM_API_KEY=...
 python3 -m aco_runtime --mode llm
 ```
 
@@ -79,17 +90,23 @@ python3 -m aco_runtime --mode llm
 ## Repo layout
 
 ```text
-packages/protocol/     Shared TS contracts (Action / Observation / Snapshot)
-apps/world/            TypeScript World Server (tick, systems, WS, SQLite)
-apps/web/              React + rot.js observer UI
-apps/agent-runtime/    Python Agent Runtime (mock | llm)
-docs/superpowers/      Design + implementation plan
+packages/protocol/     Shared TS contracts
+apps/world/            World Server (tick, systems, HTTP API, WS, SQLite)
+apps/cli/              aco CLI → HTTP API
+apps/web/              React + rot.js observer
+apps/agent-runtime/    Optional Python runtime (mock | llm over WS)
+skills/aco-play/       Skill for external agents
+docs/superpowers/      Design + plan
 ```
 
-## Protocol (summary)
+## Surfaces
 
-- Frontend: `ws://127.0.0.1:8080/ws/frontend` — `snapshot` / `select_agent`
-- Agent: `ws://127.0.0.1:8080/ws/agent?agentId=agent-1` — `hello` → `observation` → `action_batch`
+| Surface | URL / command |
+|---------|----------------|
+| HTTP API | `http://127.0.0.1:8080/api/status` … |
+| CLI | `pnpm aco <cmd>` |
+| Frontend WS | `ws://127.0.0.1:8080/ws/frontend` |
+| Agent WS (optional) | `ws://127.0.0.1:8080/ws/agent?agentId=agent-1` |
 
 ## Tests
 

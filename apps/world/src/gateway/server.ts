@@ -5,6 +5,7 @@ import type { World } from "../core/world.js";
 import type { TickScheduler } from "../scheduler/tick.js";
 import { FrontendGateway } from "./frontendGateway.js";
 import { AgentGateway } from "./agentGateway.js";
+import { createHttpHandler } from "./httpApi.js";
 import { config } from "../config.js";
 
 export interface WorldServer {
@@ -21,10 +22,10 @@ export function createWorldServer(
 ): WorldServer {
   const frontend = new FrontendGateway(world);
   const agents = new AgentGateway(world, scheduler);
+  const httpHandler = createHttpHandler(world, scheduler, frontend);
 
-  const httpServer = http.createServer((_req, res) => {
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    res.end("ACO World Server\n");
+  const httpServer = http.createServer((req, res) => {
+    httpHandler(req, res);
   });
 
   const wss = new WebSocketServer({ noServer: true });
@@ -55,6 +56,7 @@ export function createWorldServer(
 
   httpServer.listen(port, () => {
     console.log(`[world] listening on http://127.0.0.1:${port}`);
+    console.log(`[world] HTTP API   http://127.0.0.1:${port}/api/status`);
     console.log(`[world] frontend WS  ws://127.0.0.1:${port}/ws/frontend`);
     console.log(
       `[world] agent WS     ws://127.0.0.1:${port}/ws/agent?agentId=${config.agentId}`,
