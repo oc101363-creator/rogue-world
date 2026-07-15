@@ -10,7 +10,7 @@ pub mod config;
 pub mod events;
 pub mod f_info;
 pub mod gateway;
-pub mod generate;
+pub mod generate; // generate/mod.rs
 pub mod grid;
 pub mod memory;
 pub mod org;
