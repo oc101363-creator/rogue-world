@@ -9,7 +9,8 @@ use std::path::Path;
 use crate::components::{
     Agent, Building, Glyph, Inventory, Position, Resource, ResourceKind, StableId,
 };
-use crate::grid::{Grid, Terrain};
+use crate::feat::Feat;
+use crate::grid::Grid;
 use crate::world::{IdCounter, KernelConfig, KernelWorld, TickCounter};
 use crate::actions::ActionQueue;
 use crate::events::EventBuf;
@@ -22,7 +23,7 @@ pub struct WorldSnapshot {
     pub height: i32,
     pub hut_wood_cost: u32,
     pub id_counter: u64,
-    pub cells: Vec<Terrain>,
+    pub cells: Vec<Feat>,
     pub entities: Vec<EntitySnap>,
 }
 

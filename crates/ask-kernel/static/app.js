@@ -13,8 +13,6 @@ const elStatus = document.getElementById("status");
 const elInfo = document.getElementById("info");
 const elCam = document.getElementById("cam");
 
-const TILE_FG = { "#": "#4a7a4a", ".": "#7cb35a" };
-const TILE_BG = { "#": "#0c140c", ".": "#141c12" };
 const KIND_COLOR = {
   agent: "#ffe066",
   tree: "#2dd36f",
@@ -155,9 +153,13 @@ function drawSnap(snap) {
   const y0 = cam.ty;
 
   d.clear();
+  const fgs = snap.tile_fg || [];
+  const bgs = snap.tile_bg || [];
   for (let vy = 0; vy < viewRows; vy++) {
     const wy = y0 + vy;
     const row = snap.tiles[wy] || "";
+    const fgRow = fgs[wy] || [];
+    const bgRow = bgs[wy] || [];
     for (let vx = 0; vx < viewCols; vx++) {
       const wx = x0 + vx;
       if (wy < 0 || wx < 0 || wy >= mapH || wx >= mapW) {
@@ -165,7 +167,9 @@ function drawSnap(snap) {
         continue;
       }
       const ch = row[wx] || " ";
-      d.draw(vx, vy, ch, TILE_FG[ch] || "#555", TILE_BG[ch] || "#050805");
+      const fg = fgRow[wx] || "#888";
+      const bg = bgRow[wx] || "#050805";
+      d.draw(vx, vy, ch, fg, bg);
     }
   }
 

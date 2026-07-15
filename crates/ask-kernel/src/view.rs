@@ -1,4 +1,4 @@
-//! ASCII projection — Frog Term_fresh equivalent (debug viewer, not a UI framework).
+//! ASCII projection for CLI.
 
 use bevy_ecs::prelude::*;
 
@@ -20,7 +20,6 @@ pub fn render(world: &mut World) -> String {
         })
         .collect();
 
-    // Draw entities: resources/buildings first, agents last
     let mut non_agents = Vec::new();
     let mut agents = Vec::new();
     let mut q = world.query::<(&Position, &Glyph, Option<&Agent>)>();
