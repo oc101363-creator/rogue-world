@@ -53,6 +53,27 @@ fn generate_uses_traps_from_f_info() {
 }
 
 #[test]
+fn vaults_txt_loads_and_stamps() {
+    let vaults = ask_kernel::vaults::table();
+    assert!(vaults.len() >= 100, "vaults={}", vaults.len());
+    let mut cfg = Config::default();
+    cfg.width = 198;
+    cfg.height = 132;
+    cfg.seed = 99;
+    // large enough for vaults; generation should succeed
+    let level = generate_level(&cfg);
+    assert!(level.grid.width >= 198 - 11);
+    // vault maps introduce quartz % and doors densely sometimes
+    let quartz = level
+        .grid
+        .cells
+        .iter()
+        .filter(|&&id| id == ask_kernel::f_info::id::QUARTZ_VEIN)
+        .count();
+    assert!(quartz > 0, "expected quartz from solid/vaults");
+}
+
+#[test]
 fn move_four_way_and_blocked_by_wall() {
     let mut kw = KernelWorld::new(&Config::default());
     let agent = kw.agent_entity().unwrap();
@@ -166,8 +187,15 @@ fn build_hut_costs_wood() {
 
 #[test]
 fn mock_sim_gathers_wood_over_steps() {
-    let mut sim = Sim::new(KernelWorld::new(&Config::default()));
-    sim.run_steps(200, false);
+    // Smaller map + denser trees so mock policy reaches a tree in 200 ticks
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 3;
+    cfg.tree_count = 80;
+    cfg.iron_count = 10;
+    let mut sim = Sim::new(KernelWorld::new(&cfg));
+    sim.run_steps(400, false);
     let agent = sim.kernel.agent_entity().unwrap();
     let wood = sim
         .kernel
