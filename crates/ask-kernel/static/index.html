@@ -56,10 +56,35 @@
       </button>
     </div>
 
+    <div id="selector-panel">
+      <div class="title">+ SELECTOR +</div>
+      <div class="muted" id="sel-count">0 agents selected</div>
+      <div class="row">
+        <select id="sel-preset" class="term-input"></select>
+        <button type="button" id="sel-preset-del" class="term-btn secondary" title="Delete preset">[x]</button>
+      </div>
+      <textarea
+        id="sel-text"
+        class="term-input"
+        rows="4"
+        placeholder="Type a prompt to send to selected agents..."
+      ></textarea>
+      <div class="row">
+        <input
+          id="sel-preset-name"
+          class="term-input"
+          type="text"
+          placeholder="preset name"
+        />
+        <button type="button" id="sel-preset-save" class="term-btn">[SAVE]</button>
+      </div>
+      <button type="button" id="sel-send" class="term-btn">[ SEND ]</button>
+    </div>
+
     <div id="log" aria-live="polite"></div>
 
     <div id="help">
-      KEYS: arrows move · g interact · t dig · u scoop · v place · n plant · b build · x decon · y craft · m mock · SPACE follow · click inspect · right-click cell
+      KEYS: arrows move · g interact · t dig · u scoop · v place · n plant · b build · x decon · y craft · m mock · SPACE follow · click inspect · right-click cell · Shift-drag select · Ctrl-click toggle
     </div>
 
     <div id="inspect-popup" class="term-panel">

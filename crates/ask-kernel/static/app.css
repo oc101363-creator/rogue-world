@@ -269,6 +269,42 @@ body {
   border-color: var(--r80-accent);
 }
 
+/* Selector panel — prompt presets and send */
+#selector-panel {
+  position: fixed;
+  top: 28px;
+  right: calc(var(--space-sm) + 200px + var(--space-sm));
+  z-index: 5;
+  width: min(280px, 34vw);
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+  background: var(--r80-neutral);
+  border: 1px solid var(--r80-text);
+  padding: var(--space-sm);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+#selector-panel .title {
+  color: var(--r80-accent);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+#selector-panel .row {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: center;
+}
+#selector-panel .row .term-input {
+  flex: 1;
+  min-width: 0;
+}
+#selector-panel textarea.term-input {
+  resize: vertical;
+  min-height: 60px;
+}
+
 /* Agent tracker panel */
 #tracker {
   position: fixed;
@@ -497,7 +533,4 @@ body {
   color: var(--r80-primary);
   opacity: 0.85;
   margin-bottom: var(--space-xs);
-}
-  background: var(--r80-primary);
-  color: var(--r80-neutral);
 }

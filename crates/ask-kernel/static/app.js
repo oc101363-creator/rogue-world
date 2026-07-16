@@ -24,9 +24,18 @@ const elInspectBody = document.getElementById("inspect-body");
 const elInspectClose = document.getElementById("inspect-close");
 const elSelectBox = document.getElementById("select-box");
 
+const elSelCount = document.getElementById("sel-count");
+const elSelPreset = document.getElementById("sel-preset");
+const elSelPresetDel = document.getElementById("sel-preset-del");
+const elSelPresetSave = document.getElementById("sel-preset-save");
+const elSelPresetName = document.getElementById("sel-preset-name");
+const elSelText = document.getElementById("sel-text");
+const elSelSend = document.getElementById("sel-send");
+
 const ZOOM_STEPS = [6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 40];
 const THEME_KEY = "ask-theme";
 const TRACK_KEY = "ask-track-tokens";
+const PRESETS_KEY = "ask-presets-v1";
 const TRACK_COLORS = ["#ffff00", "#00ffff", "#00ff00", "#ff00ff", "#ff8800", "#88ff88"];
 
 let display = null;
@@ -253,13 +262,75 @@ function worldAtScreen(clientX, clientY) {
   };
 }
 
-function updateSelectionPanel() {
-  // no selection panel in current UI; stub for future use
-}
-
 function updateSelectionHighlight() {
   // drawSnap already reads selectedAgentIds globally
   if (lastSnap) drawSnap(lastSnap);
+}
+
+function loadPresets() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PRESETS_KEY) || "[]");
+    return Array.isArray(raw) ? raw : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function savePresets(presets) {
+  localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+}
+
+function renderPresets() {
+  if (!elSelPreset) return;
+  const presets = loadPresets();
+  elSelPreset.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "-- preset --";
+  elSelPreset.appendChild(none);
+  for (const p of presets) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name;
+    elSelPreset.appendChild(opt);
+  }
+}
+
+function updateSelectionPanel() {
+  if (!elSelCount) return;
+  elSelCount.textContent = `${selectedAgentIds.size} agents selected`;
+}
+
+async function sendPromptToSelected(text) {
+  const token = inspectToken();
+  if (!token) {
+    pushLog("SEND: track a token first");
+    return;
+  }
+  if (!selectedAgentIds.size) {
+    pushLog("SEND: select agents first");
+    return;
+  }
+  if (!text.trim()) {
+    pushLog("SEND: empty prompt");
+    return;
+  }
+  const targets = Array.from(selectedAgentIds);
+  try {
+    const r = await fetch("/api/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, targets, text }),
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      pushLog("SEND: " + (d.reason || "failed"));
+      return;
+    }
+    pushLog(`SEND → ${d.sent} agents, ${d.rejected} rejected`);
+  } catch (_) {
+    pushLog("SEND: network");
+  }
 }
 
 function setSelectedAgents(ids) {
@@ -1296,8 +1367,51 @@ if (elInspectClose) {
   });
 }
 
+if (elSelPreset) {
+  elSelPreset.addEventListener("change", () => {
+    const id = elSelPreset.value;
+    if (!id) return;
+    const p = loadPresets().find((x) => x.id === id);
+    if (p && elSelText) elSelText.value = p.text;
+  });
+}
+if (elSelPresetSave) {
+  elSelPresetSave.addEventListener("click", () => {
+    const name = (elSelPresetName && elSelPresetName.value || "").trim();
+    const text = (elSelText && elSelText.value || "").trim();
+    if (!name || !text) {
+      pushLog("PRESET: need name and text");
+      return;
+    }
+    const presets = loadPresets();
+    presets.push({ id: Date.now().toString(36), name, text });
+    savePresets(presets);
+    renderPresets();
+    if (elSelPresetName) elSelPresetName.value = "";
+    pushLog(`PRESET saved: ${name}`);
+  });
+}
+if (elSelPresetDel) {
+  elSelPresetDel.addEventListener("click", () => {
+    const id = elSelPreset.value;
+    if (!id) return;
+    const presets = loadPresets().filter((p) => p.id !== id);
+    savePresets(presets);
+    renderPresets();
+    if (elSelText) elSelText.value = "";
+    pushLog("PRESET deleted");
+  });
+}
+if (elSelSend) {
+  elSelSend.addEventListener("click", () => {
+    sendPromptToSelected(elSelText ? elSelText.value : "");
+  });
+}
+
 setupThemeSelect();
 updateModeHud();
+renderPresets();
+updateSelectionPanel();
 renderTracker();
 refreshTracked();
 connect();
