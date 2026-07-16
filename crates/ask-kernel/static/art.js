@@ -72,5 +72,5 @@ function materialColor(material, theme) {
   if (artCatalog && artCatalog.materials && artCatalog.materials[material]) {
     return artCatalog.materials[material];
   }
-  return "#ffffff";
+  return "#8b93a0";
 }

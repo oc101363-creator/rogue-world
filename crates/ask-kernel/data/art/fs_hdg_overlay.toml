@@ -1,13 +1,13 @@
 # FS-HDG presentation overlay — pure data, never read by systems/*.
 # catalog_version bumps when materials or overrides change.
-catalog_version = 2
+catalog_version = 3
 
 [materials]
 # Stone / floor shades (from frog letters + semantics)
 void = "#000000"
 shadow = "#2a2a2a"
 stone_dark = "#6e6e6e"
-floor = "#9aa3ad"
+floor = "#5c6670"
 stone_light = "#c5cdd6"
 granite = "#a8b0b8"
 crystal = "#9ad0ff"

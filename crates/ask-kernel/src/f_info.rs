@@ -174,6 +174,7 @@ pub mod id {
     pub const DARK_PIT: u16 = 87;
     pub const DIRT: u16 = 88;
     pub const GRASS: u16 = 89;
+    pub const FLOWER: u16 = 93;
     pub const BRAKE: u16 = 94;
     pub const TREE: u16 = 96;
     pub const MOUNTAIN: u16 = 97;
