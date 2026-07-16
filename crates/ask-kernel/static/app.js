@@ -315,6 +315,10 @@ async function sendPromptToSelected(text) {
     pushLog("SEND: empty prompt");
     return;
   }
+  if (text.length > 500) {
+    pushLog("SEND: prompt too long (>500 UTF-16 code units)");
+    return;
+  }
   const targets = Array.from(selectedAgentIds);
   try {
     const r = await fetch("/api/message", {
