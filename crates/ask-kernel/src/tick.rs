@@ -8,7 +8,8 @@ use crate::components::Agent;
 use crate::events::EventBuf;
 use crate::systems::terrain::PendingLevelChange;
 use crate::systems::{
-    advance_tick_system, apply_actions_system, begin_tick_system, pickup_items, process_monsters,
+    advance_tick_system, apply_actions_system, begin_tick_system, check_deaths, pickup_items,
+    process_monsters,
 };
 use crate::view;
 use crate::vision;
@@ -53,6 +54,9 @@ impl Sim {
 
         // frog process_monsters phase
         process_monsters(&mut self.kernel.world);
+
+        // hp 0 → drop pack, respawn elsewhere (before any level rebuild)
+        check_deaths(&mut self.kernel.world);
 
         // Stairs: rebuild level if requested this tick
         let pending = self.kernel.world.remove_resource::<PendingLevelChange>();

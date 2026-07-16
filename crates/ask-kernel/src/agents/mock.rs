@@ -5,10 +5,11 @@ use bevy_ecs::prelude::*;
 
 use crate::actions::Action;
 use crate::agents::AgentPolicy;
-use crate::components::{Agent, Inventory, Position, Resource, ResourceKind};
+use crate::components::Position;
+use crate::components::{Resource, ResourceKind};
 use crate::grid::Grid;
 use crate::systems::interact;
-use crate::world::KernelConfig;
+use crate::systems::step_toward;
 
 #[derive(Default)]
 pub struct MockPolicy;
@@ -90,21 +91,6 @@ impl AgentPolicy for MockPolicy {
         }
 
         // If we have wood, try build underfoot when list_at didn't (e.g. cost edge)
-        let _ = world.get::<Inventory>(agent);
-        let _ = world.get_resource::<KernelConfig>();
-        let _: Option<&Agent> = world.get::<Agent>(agent);
         Action::Idle
-    }
-}
-
-fn step_toward(x: i32, y: i32, tx: i32, ty: i32) -> (i32, i32) {
-    let dx = tx - x;
-    let dy = ty - y;
-    if dx.abs() >= dy.abs() && dx != 0 {
-        (dx.signum(), 0)
-    } else if dy != 0 {
-        (0, dy.signum())
-    } else {
-        (0, 0)
     }
 }

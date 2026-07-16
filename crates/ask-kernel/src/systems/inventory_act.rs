@@ -121,8 +121,8 @@ pub fn apply_rest(world: &mut World, agent: Entity) {
         if h.hp >= h.max_hp {
             (0, h.hp, h.max_hp)
         } else {
-            h.hp = (h.hp + 1).min(h.max_hp);
-            (1, h.hp, h.max_hp)
+            h.hp = (h.hp + crate::balance::REST_HEAL).min(h.max_hp);
+            (crate::balance::REST_HEAL, h.hp, h.max_hp)
         }
     };
     world.resource_mut::<EventBuf>().push(GameEvent::Rested {

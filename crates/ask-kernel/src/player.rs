@@ -11,7 +11,7 @@ use bevy_ecs::prelude::*;
 use crate::actions::Action;
 use crate::agents::mock::MockPolicy;
 use crate::agents::AgentPolicy;
-use crate::components::{Agent, StableId};
+use crate::components::StableId;
 
 /// Shared queue of player intents. Safe to clone (Arc).
 #[derive(Clone, Default)]
@@ -138,7 +138,6 @@ impl AgentPolicy for BusPolicy {
             return self.mock.decide(world, agent);
         }
 
-        let _: Option<&Agent> = world.get::<Agent>(agent);
         Action::Idle
     }
 }

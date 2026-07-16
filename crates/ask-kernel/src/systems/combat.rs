@@ -40,7 +40,7 @@ pub fn apply_attack(world: &mut World, agent: Entity, dx: i32, dy: i32) {
         return;
     };
 
-    let damage = 3;
+    let damage = crate::balance::PLAYER_MELEE_DAMAGE;
     if let Some(mut hp) = world.get_mut::<Health>(mon_e) {
         hp.damage(damage);
     }

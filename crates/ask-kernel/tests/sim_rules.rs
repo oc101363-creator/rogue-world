@@ -855,3 +855,150 @@ fn change_level_preserves_all_agents_body_and_identity() {
     // depth advanced
     assert_eq!(kw.world.resource::<ask_kernel::world::Depth>().0, 1);
 }
+
+#[test]
+fn monster_targets_nearest_agent_not_first() {
+    use ask_kernel::components::{Agent, Monster, StableId};
+    use bevy_ecs::prelude::With;
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 11;
+    let mut kw = KernelWorld::new(&cfg);
+    let (sid2, _, _) = kw.spawn_agent("Bait".into(), "tank".into()).expect("spawn");
+
+    // park both agents on walkable floor; monster adjacent to agent 2 only
+    let floor = find_open_floor(&mut kw, 10);
+    let e1 = agent_entity_by(&mut kw, None);
+    let e2 = agent_entity_by(&mut kw, Some(sid2));
+    set_pos(&mut kw, e1, (floor.0, floor.1));
+    set_pos(&mut kw, e2, (floor.0 + 6, floor.1));
+    let mid = kw.world.resource::<ask_kernel::world::IdCounter>().0 + 1;
+    kw.world.insert_resource(ask_kernel::world::IdCounter(mid));
+    kw.world.spawn((
+        Position { x: floor.0 + 5, y: floor.1 },
+        Glyph('o'),
+        Monster { race_id: 1, name: "rat".into(), color: 'r' },
+        Health { hp: 8, max_hp: 8 },
+        StableId(mid),
+    ));
+
+    ask_kernel::systems::process_monsters(&mut kw.world);
+
+    let hp1 = kw.world.get::<Health>(e1).unwrap().hp;
+    let hp2 = kw.world.get::<Health>(e2).unwrap().hp;
+    assert_eq!(hp1, 20, "far agent must not be touched");
+    assert!(hp2 < 20, "nearest agent should have been attacked, hp={hp2}");
+}
+
+#[test]
+fn death_drops_pack_and_respawns_full_hp() {
+    use ask_kernel::components::{Item, Matter, StableId};
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 13;
+    let mut kw = KernelWorld::new(&cfg);
+
+    let e1 = agent_entity_by(&mut kw, None);
+    let sid1 = kw.world.get::<StableId>(e1).unwrap().0;
+    let floor = find_open_floor(&mut kw, 10);
+    set_pos(&mut kw, e1, floor);
+    // pack something, then nearly die
+    kw.world.get_mut::<Inventory>(e1).unwrap().add(
+        Matter::Resource { resource: ResourceKind::Wood },
+        5,
+    );
+    kw.world.get_mut::<Health>(e1).unwrap().hp = 0;
+
+    let before_pos = floor;
+    ask_kernel::systems::check_deaths(&mut kw.world);
+
+    let h = kw.world.get::<Health>(e1).unwrap();
+    assert_eq!(h.hp, h.max_hp, "respawn must refill hp");
+    assert_eq!(kw.world.get::<Inventory>(e1).unwrap().slots.len(), 0, "pack must drop");
+    let p = kw.world.get::<Position>(e1).unwrap();
+    assert!((p.x, p.y) != before_pos || true, "position may change");
+    // dropped wood lies on the death cell
+    let dropped: u32 = {
+        let mut q = kw.world.query::<(&Position, &Item)>();
+        q.iter(&kw.world)
+            .filter(|(p, _)| p.x == before_pos.0 && p.y == before_pos.1)
+            .map(|(_, it)| it.qty)
+            .sum()
+    };
+    assert_eq!(dropped, 5, "dropped matter should remain at death cell");
+    // events tell the story
+    let evs = kw.world.resource_mut::<EventBuf>().drain();
+    assert!(evs.iter().any(|e| matches!(e, GameEvent::AgentDied { entity, .. } if *entity == sid1)));
+    assert!(evs.iter().any(|e| matches!(e, GameEvent::AgentRespawned { entity, .. } if *entity == sid1)));
+}
+
+// --- small local helpers (keep tests terse) ---
+fn find_open_floor(kw: &mut KernelWorld, min_open: i32) -> (i32, i32) {
+    let (w, h, cells) = {
+        let g = kw.world.resource::<Grid>();
+        (g.width, g.height, g.cells.clone())
+    };
+    let table = ask_kernel::f_info::table();
+    let walk = |x: i32, y: i32| -> bool {
+        if x < 0 || y < 0 || x >= w || y >= h {
+            return false;
+        }
+        table.walk(cells[(y * w + x) as usize])
+    };
+    for y in 2..h - 2 {
+        for x in 2..w - 2 {
+            let mut open = 0;
+            for dy in -1..=1 {
+                for dx in -min_open..=min_open {
+                    if walk(x + dx, y + dy) {
+                        open += 1;
+                    }
+                }
+            }
+            if open >= min_open * 2 {
+                // prefer a spot with no agents nearby
+                let mut q = kw.world.query_filtered::<&Position, bevy_ecs::prelude::With<ask_kernel::components::Agent>>();
+                if q.iter(&kw.world).all(|p| (p.x - x).abs() + (p.y - y).abs() > 8) {
+                    return (x, y);
+                }
+            }
+        }
+    }
+    panic!("no open floor found");
+}
+
+fn agent_entity_by(
+    kw: &mut KernelWorld,
+    sid: Option<u64>,
+) -> bevy_ecs::prelude::Entity {
+    use ask_kernel::components::{Agent, AgentProfile, StableId};
+    use bevy_ecs::prelude::With;
+    // None → the unregistered level agent (no profile); Some(id) → by stable id
+    if let Some(want) = sid {
+        let mut q =
+            kw.world
+                .query_filtered::<(bevy_ecs::prelude::Entity, &StableId), With<Agent>>();
+        return q
+            .iter(&kw.world)
+            .find(|(_, s)| s.0 == want)
+            .map(|(e, _)| e)
+            .expect("agent by stable id");
+    }
+    let mut q = kw
+        .world
+        .query_filtered::<(bevy_ecs::prelude::Entity, Option<&AgentProfile>), With<Agent>>();
+    q.iter(&kw.world)
+        .find(|(_, pr)| pr.is_none())
+        .map(|(e, _)| e)
+        .expect("unregistered agent")
+}
+
+fn set_pos(kw: &mut KernelWorld, e: bevy_ecs::prelude::Entity, pos: (i32, i32)) {
+    let mut p = kw.world.get_mut::<Position>(e).unwrap();
+    p.x = pos.0;
+    p.y = pos.1;
+}

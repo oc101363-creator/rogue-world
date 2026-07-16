@@ -1,6 +1,7 @@
 pub mod build;
 pub mod combat;
 pub mod craft;
+pub mod death;
 pub mod dig;
 pub mod harvest;
 pub mod interact;
@@ -21,6 +22,7 @@ use self::interact::apply_interact;
 use self::inventory_act::{apply_drop_item, apply_rest};
 use self::movement::apply_move;
 
+pub use self::death::check_deaths_system as check_deaths;
 pub use self::items::pickup_items_system as pickup_items;
 pub use self::monster::process_monsters_system as process_monsters;
 
@@ -69,4 +71,17 @@ pub fn stable_id(world: &World, entity: Entity) -> u64 {
         .get::<StableId>(entity)
         .map(|s| s.0)
         .unwrap_or(entity.to_bits())
+}
+
+/// Greedy 4-way unit step toward a target (shared by mock policy & monsters).
+pub fn step_toward(x: i32, y: i32, tx: i32, ty: i32) -> (i32, i32) {
+    let dx = tx - x;
+    let dy = ty - y;
+    if dx.abs() >= dy.abs() && dx != 0 {
+        (dx.signum(), 0)
+    } else if dy != 0 {
+        (0, dy.signum())
+    } else {
+        (0, 0)
+    }
 }

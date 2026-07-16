@@ -143,6 +143,16 @@ pub enum GameEvent {
         at: (i32, i32),
         wood: u32,
     },
+    /// Agent hp reached 0 — pack drops on the spot.
+    AgentDied {
+        entity: u64,
+        at: (i32, i32),
+    },
+    /// Agent came back at a fresh cell with full hp (empty pack).
+    AgentRespawned {
+        entity: u64,
+        at: (i32, i32),
+    },
 }
 
 #[derive(Resource, Default, Debug)]

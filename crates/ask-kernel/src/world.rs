@@ -268,7 +268,10 @@ impl KernelWorld {
                     name: m.name.clone(),
                     color: m.color,
                 },
-                Health { hp: 8, max_hp: 8 },
+                Health {
+                    hp: crate::balance::MONSTER_HP,
+                    max_hp: crate::balance::MONSTER_HP,
+                },
                 StableId(id),
             ))
             .id()
@@ -306,42 +309,8 @@ impl KernelWorld {
     }
 
     /// Random free (buildable, agent-unoccupied) cell anywhere on the map.
-    /// `mix` decorrelates repeated picks (agent id, tick, …).
     fn random_free_cell(&mut self, mix: u64) -> Option<(i32, i32)> {
-        let occupied: Vec<(i32, i32)> = {
-            let mut q = self.world.query_filtered::<&Position, With<Agent>>();
-            q.iter(&self.world).map(|p| (p.x, p.y)).collect()
-        };
-        let tick = self.world.resource::<TickCounter>().0;
-        let seed = self
-            .world
-            .get_resource::<WorldSeed>()
-            .map(|s| s.0)
-            .unwrap_or(1);
-        let rng_state = seed
-            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-            .wrapping_add(mix.wrapping_mul(0xBF58_476D_1CE4_E5B9))
-            .wrapping_add(tick.wrapping_mul(0x94D0_49BB_1331_11EB))
-            .wrapping_add(0xA076_1D64_78BD_642F)
-            | 1;
-
-        let g = self.world.resource::<Grid>();
-        let free: Vec<(i32, i32)> = (1..g.width - 1)
-            .flat_map(|x| (1..g.height - 1).map(move |y| (x, y)))
-            .filter(|&(x, y)| {
-                g.buildable(x, y) && !occupied.iter().any(|&(ox, oy)| ox == x && oy == y)
-            })
-            .collect();
-        if free.is_empty() {
-            return None;
-        }
-        // xorshift64*
-        let mut x = rng_state;
-        x ^= x >> 12;
-        x ^= x << 25;
-        x ^= x >> 27;
-        let pick = (x.wrapping_mul(0x2545_F491_4F6C_DD1D) as usize) % free.len();
-        Some(free[pick])
+        random_free_cell(&mut self.world, mix)
     }
 
     /// Spawn a new registered agent on a **random** free floor cell (anywhere on map).
@@ -364,4 +333,43 @@ impl KernelWorld {
         vision::update_view(&mut self.world);
         Some((id, x, y))
     }
+}
+
+/// Random free (buildable, agent-unoccupied) cell anywhere on the map.
+/// `mix` decorrelates repeated picks (agent id, tick, …).
+/// Shared by spawn paths and the death/respawn system.
+pub fn random_free_cell(world: &mut World, mix: u64) -> Option<(i32, i32)> {
+    let occupied: Vec<(i32, i32)> = {
+        let mut q = world.query_filtered::<&Position, With<Agent>>();
+        q.iter(world).map(|p| (p.x, p.y)).collect()
+    };
+    let tick = world.resource::<TickCounter>().0;
+    let seed = world
+        .get_resource::<WorldSeed>()
+        .map(|s| s.0)
+        .unwrap_or(1);
+    let rng_state = seed
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        .wrapping_add(mix.wrapping_mul(0xBF58_476D_1CE4_E5B9))
+        .wrapping_add(tick.wrapping_mul(0x94D0_49BB_1331_11EB))
+        .wrapping_add(0xA076_1D64_78BD_642F)
+        | 1;
+
+    let g = world.resource::<Grid>();
+    let free: Vec<(i32, i32)> = (1..g.width - 1)
+        .flat_map(|x| (1..g.height - 1).map(move |y| (x, y)))
+        .filter(|&(x, y)| {
+            g.buildable(x, y) && !occupied.iter().any(|&(ox, oy)| ox == x && oy == y)
+        })
+        .collect();
+    if free.is_empty() {
+        return None;
+    }
+    // xorshift64*
+    let mut x = rng_state;
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    let pick = (x.wrapping_mul(0x2545_F491_4F6C_DD1D) as usize) % free.len();
+    Some(free[pick])
 }

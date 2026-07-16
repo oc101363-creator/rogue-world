@@ -2,6 +2,7 @@
 
 use bevy_ecs::prelude::*;
 
+use crate::balance;
 use crate::components::{Health, Position};
 use crate::events::{EventBuf, GameEvent};
 use crate::f_info::{self, id};
@@ -23,7 +24,7 @@ pub fn on_enter_cell(world: &mut World, entity: Entity, x: i32, y: i32) {
         let name = info
             .map(|f| f.name.clone())
             .unwrap_or_else(|| "trap".into());
-        let damage = trap_damage(feat);
+        let damage = balance::trap_damage(feat);
         if let Some(mut hp) = world.get_mut::<Health>(entity) {
             hp.damage(damage);
         }
@@ -52,7 +53,11 @@ pub fn on_enter_cell(world: &mut World, entity: Entity, x: i32, y: i32) {
 
     // --- lava ---
     if info.map(|f| f.lava).unwrap_or(false) {
-        let damage = if feat == id::DEEP_LAVA { 6 } else { 3 };
+        let damage = if feat == id::DEEP_LAVA {
+            balance::LAVA_DEEP_DAMAGE
+        } else {
+            balance::LAVA_SHALLOW_DAMAGE
+        };
         if let Some(mut hp) = world.get_mut::<Health>(entity) {
             hp.damage(damage);
         }
@@ -70,7 +75,7 @@ pub fn on_enter_cell(world: &mut World, entity: Entity, x: i32, y: i32) {
 
     // --- deep water: mild damage (fatigue) ---
     if feat == id::DEEP_WATER {
-        let damage = 1;
+        let damage = balance::DEEP_WATER_DAMAGE;
         if let Some(mut hp) = world.get_mut::<Health>(entity) {
             hp.damage(damage);
         }
@@ -83,17 +88,6 @@ pub fn on_enter_cell(world: &mut World, entity: Entity, x: i32, y: i32) {
                 damage,
                 hp: hp_now,
             });
-    }
-}
-
-fn trap_damage(feat: u16) -> i32 {
-    match feat {
-        id::TRAP_TRAPDOOR => 4,
-        id::TRAP_PIT | id::TRAP_SPIKED_PIT => 3,
-        id::TRAP_POISON_PIT | id::TRAP_POISON => 2,
-        id::TRAP_FIRE | id::TRAP_ACID => 4,
-        id::TRAP_TY_CURSE => 5,
-        _ => 2,
     }
 }
 
@@ -154,14 +148,19 @@ pub fn apply_close_door(world: &mut World, entity: Entity, dx: i32, dy: i32) {
             });
         return;
     }
-    // don't close on top of another agent
-    {
+    // don't close on top of anyone standing in the doorway (self included)
+    let occupied = {
         let mut q = world.query::<&Position>();
-        for p in q.iter(world) {
-            if p.x == tx && p.y == ty {
-                // self is ok if underfoot; other blockers reject
-            }
-        }
+        q.iter(world).any(|p| p.x == tx && p.y == ty)
+    };
+    if occupied {
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::ActionRejected {
+                entity: eid,
+                reason: "door_occupied".into(),
+            });
+        return;
     }
     world.resource_mut::<Grid>().set(tx, ty, id::CLOSED_DOOR);
     world

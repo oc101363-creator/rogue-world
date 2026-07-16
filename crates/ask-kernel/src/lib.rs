@@ -7,6 +7,7 @@ pub mod actions;
 pub mod agents;
 pub mod art;
 pub mod auth;
+pub mod balance;
 pub mod components;
 pub mod config;
 pub mod events;

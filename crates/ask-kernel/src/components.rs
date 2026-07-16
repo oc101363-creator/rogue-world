@@ -286,7 +286,10 @@ pub struct Health {
 
 impl Default for Health {
     fn default() -> Self {
-        Self { hp: 20, max_hp: 20 }
+        Self {
+            hp: crate::balance::AGENT_HP,
+            max_hp: crate::balance::AGENT_HP,
+        }
     }
 }
 

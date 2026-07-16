@@ -1,12 +1,15 @@
 //! Minimal frog-like monster turn: wander / chase / contact attack.
+//!
+//! Each monster targets the NEAREST agent (not just the first one spawned).
 
 use bevy_ecs::prelude::*;
 
+use crate::balance;
 use crate::components::{Agent, Health, Monster, Position, StableId};
 use crate::events::{EventBuf, GameEvent};
 use crate::f_info;
 use crate::grid::Grid;
-use crate::systems::stable_id;
+use crate::systems::{stable_id, step_toward};
 use crate::world::WorldSeed;
 
 /// Process all monsters once per tick (after agent actions).
@@ -17,14 +20,13 @@ pub fn process_monsters_system(world: &mut World) {
         .map(|t| t.0)
         .unwrap_or(0);
 
-    // agent position
-    let agent = {
+    let agents: Vec<(Entity, Position)> = {
         let mut q = world.query_filtered::<(Entity, &Position), With<Agent>>();
-        q.iter(world).next().map(|(e, p)| (e, *p))
+        q.iter(world).map(|(e, p)| (e, *p)).collect()
     };
-    let Some((agent_e, agent_pos)) = agent else {
+    if agents.is_empty() {
         return;
-    };
+    }
 
     let monsters: Vec<(Entity, Position, String)> = {
         let mut q = world.query::<(Entity, &Position, &Monster)>();
@@ -39,72 +41,34 @@ pub fn process_monsters_system(world: &mut World) {
             continue;
         }
 
+        // nearest agent is the target
+        let Some(&(agent_e, agent_pos)) = agents
+            .iter()
+            .min_by_key(|(_, p)| (p.x - pos.x).abs() + (p.y - pos.y).abs())
+        else {
+            continue;
+        };
         let dist = (pos.x - agent_pos.x).abs() + (pos.y - agent_pos.y).abs();
 
-        // contact attack
-        if dist == 0 || dist == 1 {
-            // if adjacent, step onto agent cell = attack instead of move
-            if dist == 1 {
-                // try move onto agent → attack
-                let dx = (agent_pos.x - pos.x).signum();
-                let dy = (agent_pos.y - pos.y).signum();
-                // prefer axis move
-                let (mx, my) = if dx != 0 && dy != 0 {
-                    if (tick as usize + i) % 2 == 0 {
-                        (dx, 0)
-                    } else {
-                        (0, dy)
-                    }
-                } else {
-                    (dx, dy)
-                };
-                let nx = pos.x + mx;
-                let ny = pos.y + my;
-                if nx == agent_pos.x && ny == agent_pos.y {
-                    let damage = 2;
-                    if let Some(mut hp) = world.get_mut::<Health>(agent_e) {
-                        hp.damage(damage);
-                    }
-                    let thp = world.get::<Health>(agent_e).map(|h| h.hp).unwrap_or(0);
-                    let mid = stable_id(world, mon_e);
-                    let aid = stable_id(world, agent_e);
-                    world
-                        .resource_mut::<EventBuf>()
-                        .push(GameEvent::MonsterAttacked {
-                            monster: mid,
-                            target: aid,
-                            damage,
-                            target_hp: thp,
-                            name,
-                        });
-                    continue;
-                }
-            } else if dist == 0 {
-                let damage = 2;
-                if let Some(mut hp) = world.get_mut::<Health>(agent_e) {
-                    hp.damage(damage);
-                }
-                let thp = world.get::<Health>(agent_e).map(|h| h.hp).unwrap_or(0);
-                let mid = stable_id(world, mon_e);
-                let aid = stable_id(world, agent_e);
-                world
-                    .resource_mut::<EventBuf>()
-                    .push(GameEvent::MonsterAttacked {
-                        monster: mid,
-                        target: aid,
-                        damage,
-                        target_hp: thp,
-                        name,
-                    });
-                continue;
-            }
+        // contact: same cell or adjacent → attack, no move
+        if dist <= 1 {
+            hit(world, mon_e, agent_e, &name);
+            continue;
         }
 
-        // chase if within 8, else wander
-        let (dx, dy) = if dist <= 8 {
-            step_toward(pos.x, pos.y, agent_pos.x, agent_pos.y)
+        // chase if within range, else deterministic wander
+        let (dx, dy) = if dist <= balance::MONSTER_CHASE_RANGE {
+            let (mut mx, mut my) = step_toward(pos.x, pos.y, agent_pos.x, agent_pos.y);
+            // diagonal approach: alternate axis preference per monster/tick
+            if (agent_pos.x - pos.x).signum() != 0
+                && (agent_pos.y - pos.y).signum() != 0
+                && (tick as usize + i) % 2 == 0
+            {
+                mx = 0;
+                my = (agent_pos.y - pos.y).signum();
+            }
+            (mx, my)
         } else {
-            // deterministic wander from seed+tick+id
             let sid = world.get::<StableId>(mon_e).map(|s| s.0).unwrap_or(0);
             let r = seed
                 .wrapping_add(tick)
@@ -125,14 +89,12 @@ pub fn process_monsters_system(world: &mut World) {
         let nx = pos.x + dx;
         let ny = pos.y + dy;
 
-        // don't walk into other monsters / blocked / closed doors
         if !world.resource::<Grid>().walkable(nx, ny) {
             continue;
         }
         if f_info::table().is_closed_door(world.resource::<Grid>().get(nx, ny).unwrap_or(0)) {
             continue;
         }
-        // occupied by another monster?
         let blocked = {
             let mut q = world.query_filtered::<&Position, With<Monster>>();
             q.iter(world).any(|p| p.x == nx && p.y == ny)
@@ -140,24 +102,9 @@ pub fn process_monsters_system(world: &mut World) {
         if blocked {
             continue;
         }
-        // if stepping onto agent → attack instead
-        if nx == agent_pos.x && ny == agent_pos.y {
-            let damage = 2;
-            if let Some(mut hp) = world.get_mut::<Health>(agent_e) {
-                hp.damage(damage);
-            }
-            let thp = world.get::<Health>(agent_e).map(|h| h.hp).unwrap_or(0);
-            let mid = stable_id(world, mon_e);
-            let aid = stable_id(world, agent_e);
-            world
-                .resource_mut::<EventBuf>()
-                .push(GameEvent::MonsterAttacked {
-                    monster: mid,
-                    target: aid,
-                    damage,
-                    target_hp: thp,
-                    name,
-                });
+        // stepping onto ANY agent's cell = attack that agent instead
+        if let Some(&(victim_e, _)) = agents.iter().find(|(_, p)| p.x == nx && p.y == ny) {
+            hit(world, mon_e, victim_e, &name);
             continue;
         }
 
@@ -176,14 +123,22 @@ pub fn process_monsters_system(world: &mut World) {
     }
 }
 
-fn step_toward(x: i32, y: i32, tx: i32, ty: i32) -> (i32, i32) {
-    let dx = tx - x;
-    let dy = ty - y;
-    if dx.abs() >= dy.abs() && dx != 0 {
-        (dx.signum(), 0)
-    } else if dy != 0 {
-        (0, dy.signum())
-    } else {
-        (0, 0)
+/// The ONE place a monster hits an agent.
+fn hit(world: &mut World, mon_e: Entity, agent_e: Entity, name: &str) {
+    let damage = balance::MONSTER_DAMAGE;
+    if let Some(mut hp) = world.get_mut::<Health>(agent_e) {
+        hp.damage(damage);
     }
+    let thp = world.get::<Health>(agent_e).map(|h| h.hp).unwrap_or(0);
+    let mid = stable_id(world, mon_e);
+    let aid = stable_id(world, agent_e);
+    world
+        .resource_mut::<EventBuf>()
+        .push(GameEvent::MonsterAttacked {
+            monster: mid,
+            target: aid,
+            damage,
+            target_hp: thp,
+            name: name.to_string(),
+        });
 }
