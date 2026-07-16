@@ -65,13 +65,14 @@ pub fn apply_pickup(world: &mut World, agent: Entity) {
     let Some(apos) = world.get::<Position>(agent).copied() else {
         return;
     };
-    let picks: Vec<(Entity, Matter, u32)> = {
-        let mut q = world.query::<(Entity, &Position, &Item)>();
-        q.iter(world)
-            .filter(|(_, p, _)| p.x == apos.x && p.y == apos.y)
-            .map(|(e, _, it)| (e, it.matter.clone(), it.qty))
-            .collect()
-    };
+    let picks: Vec<(Entity, Matter, u32)> = crate::spatial::at(world, apos.x, apos.y)
+        .into_iter()
+        .filter_map(|e| {
+            world
+                .get::<Item>(e)
+                .map(|it| (e, it.matter.clone(), it.qty))
+        })
+        .collect();
     if picks.is_empty() {
         let eid = stable_id(world, agent);
         world

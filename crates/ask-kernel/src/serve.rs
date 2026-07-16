@@ -19,7 +19,7 @@ use axum::extract::{Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use bevy_ecs::prelude::{Entity, World};
+use bevy_ecs::prelude::{Entity, With, World};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -32,17 +32,26 @@ use crate::components::{Agent, Position, StableId};
 use crate::events::EventBuf;
 use crate::player::{BusPolicy, PlayerActionBus};
 use crate::tick::Sim;
-use crate::viewer::{build_viewer_snapshot, build_viewer_snapshot_with, ViewerSnapshot};
+use crate::viewer::{build_viewer_snapshot_with, ViewerSnapshot};
 use crate::vision::{self, GlowMask, VisionMap};
 use crate::world::KernelWorld;
 
 #[derive(Clone)]
 struct AppState {
     sim: Arc<Mutex<Sim>>,
-    recent_events: Arc<Mutex<Vec<crate::events::GameEvent>>>,
+    /// Recent world events, capped ring (EVENT_CAP). Written by the sim
+    /// thread directly — no per-tick clone of a whole Vec.
+    recent_events: Arc<Mutex<std::collections::VecDeque<crate::events::GameEvent>>>,
     bus: PlayerActionBus,
     reg: AgentRegistry,
     tick_ms: u64,
+}
+
+const EVENT_CAP: usize = 40;
+
+/// Copy the ring out for a request (40 items, trivial).
+async fn recent_snapshot(st: &AppState) -> Vec<crate::events::GameEvent> {
+    st.recent_events.lock().await.iter().cloned().collect()
 }
 
 #[derive(Debug, Deserialize)]
@@ -172,14 +181,13 @@ pub async fn run_server(
         kernel,
         Box::new(BusPolicy::new(bus.clone(), true)),
     )));
-    let recent_events = Arc::new(Mutex::new(Vec::new()));
+    let recent_events = Arc::new(Mutex::new(std::collections::VecDeque::new()));
 
     let sim_thread = sim.clone();
     let recent_thread = recent_events.clone();
     let reg_thread = reg.clone();
     let save_thread = save_path.clone();
     std::thread::spawn(move || {
-        let mut recent: Vec<crate::events::GameEvent> = Vec::new();
         loop {
             // Process pending agent registrations (spawn into world)
             for pending in reg_thread.drain_spawns() {
@@ -232,11 +240,15 @@ pub async fn run_server(
                     }
                 }
 
-                let mut ev = sim.kernel.world.resource_mut::<EventBuf>().drain();
-                recent.extend(ev.drain(..));
-                if recent.len() > 40 {
-                    let n = recent.len() - 40;
-                    recent.drain(0..n);
+                let ev = sim.kernel.world.resource_mut::<EventBuf>().drain();
+                {
+                    let mut ring = recent_thread.blocking_lock();
+                    for e in ev {
+                        if ring.len() == EVENT_CAP {
+                            ring.pop_front();
+                        }
+                        ring.push_back(e);
+                    }
                 }
 
                 // periodic autosave (every 100 ticks) when --save is given
@@ -248,7 +260,6 @@ pub async fn run_server(
                     }
                 }
             }
-            *recent_thread.blocking_lock() = recent.clone();
 
             std::thread::sleep(Duration::from_millis(tick_ms));
         }
@@ -320,17 +331,29 @@ pub async fn run_server(
 
 async fn api_status(State(st): State<AppState>) -> impl IntoResponse {
     let mut sim = st.sim.lock().await;
-    let snap = build_viewer_snapshot(&mut sim.kernel.world, &[]);
+    let (width, height) = {
+        let g = sim.kernel.world.resource::<Grid>();
+        (g.width, g.height)
+    };
+    let agents = {
+        let mut q = sim.kernel.world.query_filtered::<Entity, With<Agent>>();
+        q.iter(&sim.kernel.world).count()
+    };
+    let focused = sim
+        .kernel
+        .agent_entity()
+        .and_then(|e| sim.kernel.world.get::<StableId>(e))
+        .map(|s| s.0);
     Json(serde_json::json!({
         "ok": true,
         "tick": sim.kernel.tick(),
-        "width": snap.width,
-        "height": snap.height,
+        "width": width,
+        "height": height,
         "human_control": st.bus.human_control(),
         "pending": st.bus.pending_count(),
-        "agents": snap.entities.iter().filter(|e| e.kind == "agent").count(),
+        "agents": agents,
         "registered": st.reg.count(),
-        "agent_id": snap.focused_agent_id,
+        "agent_id": focused,
     }))
 }
 
@@ -344,7 +367,7 @@ async fn api_snapshot(
         q.token.split(',').map(String::from).collect()
     };
     let mut sim = st.sim.lock().await;
-    let recent = st.recent_events.lock().await;
+    let recent = recent_snapshot(&st).await;
     let snap = build_snapshot_for_tokens(
         &mut sim.kernel.world,
         &recent,
@@ -393,310 +416,49 @@ fn ask_kernel_recipes() -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// Build a FOV-local view for skill/CLI agents from an already-gated snapshot.
-///
-/// - `map`: (2r+1)² glyph window centered on agent (` ` = unseen)
-/// - `vision`: same window with `v`/`m`/` `
-/// - `entities`: every entity in the FOV snapshot (not just 4-neighbors), with dx/dy
-/// - `landmarks`: non-trivial terrain in current FOV (walls/water/doors/trees/…)
-fn build_agent_fov_view(snap: &ViewerSnapshot, ox: i32, oy: i32) -> serde_json::Value {
-    use crate::vision::MAX_SIGHT;
-    let r = MAX_SIGHT;
-    let w = snap.width;
-    let h = snap.height;
-    let x0 = ox - r;
-    let y0 = oy - r;
-    let side = 2 * r + 1;
-
-    let mut map_rows = Vec::with_capacity(side as usize);
-    let mut vis_rows = Vec::with_capacity(side as usize);
-    let mut landmarks = Vec::new();
-    let ftable = crate::f_info::table();
-
-    // Decode feat ids once if present (identity path).
-    let feats: Option<Vec<u16>> = {
-        let p = &snap.feat_ids;
-        if p.enc == "u16le_b64" && !p.data.is_empty() {
-            use base64::Engine;
-            if let Ok(raw) = base64::engine::general_purpose::STANDARD.decode(&p.data) {
-                let mut out = Vec::with_capacity(raw.len() / 2);
-                let mut i = 0;
-                while i + 1 < raw.len() {
-                    out.push(u16::from_le_bytes([raw[i], raw[i + 1]]));
-                    i += 2;
-                }
-                Some(out)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    };
-
-    for vy in 0..side {
-        let mut mrow = String::with_capacity(side as usize);
-        let mut vrow = String::with_capacity(side as usize);
-        let wy = y0 + vy;
-        for vx in 0..side {
-            let wx = x0 + vx;
-            if wy < 0 || wx < 0 || wy >= h || wx >= w {
-                mrow.push(' ');
-                vrow.push(' ');
-                continue;
-            }
-            let vch = snap
-                .vision
-                .get(wy as usize)
-                .and_then(|row| row.chars().nth(wx as usize))
-                .unwrap_or(' ');
-            vrow.push(vch);
-            if vch == ' ' {
-                mrow.push(' ');
-                continue;
-            }
-            let glyph = snap
-                .tiles
-                .get(wy as usize)
-                .and_then(|row| row.chars().nth(wx as usize))
-                .unwrap_or('?');
-            mrow.push(glyph);
-
-            // landmarks: only currently visible non-floor-ish cells
-            if vch == 'v' {
-                let feat_id = feats
-                    .as_ref()
-                    .and_then(|f| f.get((wy * w + wx) as usize).copied())
-                    .unwrap_or(0);
-                let info = ftable.get(feat_id);
-                let interesting = info
-                    .map(|f| {
-                        f.wall
-                            || f.water
-                            || f.lava
-                            || f.door
-                            || f.stairs
-                            || f.trap
-                            || f.tree
-                            || f.name != "FLOOR"
-                                && f.name != "NONE"
-                                && f.name != "INVIS"
-                    })
-                    .unwrap_or(glyph != '.' && glyph != ' ');
-                if interesting && !(wx == ox && wy == oy) {
-                    landmarks.push(serde_json::json!({
-                        "x": wx,
-                        "y": wy,
-                        "dx": wx - ox,
-                        "dy": wy - oy,
-                        "feat_id": feat_id,
-                        "name": info.map(|f| f.name.clone()).unwrap_or_else(|| "?".into()),
-                        "glyph": glyph.to_string(),
-                    }));
-                }
-            }
-        }
-        map_rows.push(mrow);
-        vis_rows.push(vrow);
-    }
-
-    // Cap landmarks for LLM-friendly payloads (nearest first).
-    landmarks.sort_by_key(|v| {
-        let dx = v["dx"].as_i64().unwrap_or(0).abs();
-        let dy = v["dy"].as_i64().unwrap_or(0).abs();
-        dx + dy
-    });
-    if landmarks.len() > 80 {
-        landmarks.truncate(80);
-    }
-
-    let entities: Vec<_> = snap
-        .entities
-        .iter()
-        .filter(|e| !(e.kind == "agent" && e.x == ox && e.y == oy))
-        .map(|e| {
-            serde_json::json!({
-                "id": e.id,
-                "kind": e.kind,
-                "x": e.x,
-                "y": e.y,
-                "dx": e.x - ox,
-                "dy": e.y - oy,
-                "glyph": e.glyph.to_string(),
-                "name": e.name,
-                "amount": e.amount,
-                "hp": e.hp,
-                "max_hp": e.max_hp,
-                "race_id": e.race_id,
-                "kind_id": e.kind_id,
-            })
-        })
-        .collect();
-
-    serde_json::json!({
-        "ox": ox,
-        "oy": oy,
-        "r": r,
-        "w": side,
-        "h": side,
-        "map": map_rows,
-        "vision": vis_rows,
-        "entities": entities,
-        "landmarks": landmarks,
-    })
-}
-
 async fn api_me(State(st): State<AppState>, Query(q): Query<MeQuery>) -> impl IntoResponse {
-    let tok = q.token.as_str();
+    // token → agent identity → world entity
+    let Some(agent_id) = st.reg.resolve_token(&q.token) else {
+        return Json(serde_json::json!({ "ok": false, "reason": "invalid_token" }));
+    };
     let mut sim = st.sim.lock().await;
-    let recent = st.recent_events.lock().await;
-    let snap = build_snapshot_for_tokens(
-        &mut sim.kernel.world,
-        &recent,
-        &st.reg,
-        &[tok.to_string()],
-        Some(tok),
-    );
-
-    // "self" is the focused agent (the token's own), never merely the
-    // lowest-id visible agent — other tracked/visible agents may sort first.
-    let Some(a) = snap
-        .entities
-        .iter()
-        .find(|e| e.kind == "agent" && Some(e.id) == snap.focused_agent_id)
-        .or_else(|| snap.entities.iter().find(|e| e.kind == "agent"))
+    let agent_e = {
+        let mut q2 = sim.kernel.world.query::<(Entity, &StableId)>();
+        q2.iter(&sim.kernel.world)
+            .find(|(_, sid)| sid.0 == agent_id)
+            .map(|(e, _)| e)
+    };
+    let Some(agent_e) = agent_e else {
+        return Json(serde_json::json!({ "ok": false, "reason": "no_agent" }));
+    };
+    let recent = recent_snapshot(&st).await;
+    let Some(view) = crate::agent_view::build_agent_view(&mut sim.kernel.world, agent_e, &recent)
     else {
         return Json(serde_json::json!({ "ok": false, "reason": "no_agent" }));
     };
-    let (x, y) = (a.x, a.y);
-    let underfoot = snap
-        .tiles
-        .get(y as usize)
-        .and_then(|row| row.chars().nth(x as usize))
-        .unwrap_or(' ');
-    let vis = snap
-        .vision
-        .get(y as usize)
-        .and_then(|row| row.chars().nth(x as usize))
-        .unwrap_or(' ');
-    let here: Vec<_> = snap
-        .entities
-        .iter()
-        .filter(|e| e.x == x && e.y == y && e.kind != "agent")
-        .map(|e| {
-            serde_json::json!({
-                "id": e.id, "kind": e.kind, "glyph": e.glyph,
-                "name": e.name, "amount": e.amount,
-            })
-        })
-        .collect();
-    let adj: Vec<_> = snap
-        .entities
-        .iter()
-        .filter(|e| e.kind != "agent" && (e.x - x).abs() + (e.y - y).abs() == 1)
-        .map(|e| {
-            serde_json::json!({
-                "id": e.id, "kind": e.kind, "x": e.x, "y": e.y,
-                "dx": e.x - x, "dy": e.y - y,
-                "glyph": e.glyph, "name": e.name,
-            })
-        })
-        .collect();
 
-    // Full FOV local view for navigation (not just 4-neighbors).
-    let view = build_agent_fov_view(&snap, x, y);
-
-    let messages: Vec<serde_json::Value> = {
-        let agent_entity = {
-            let mut q = sim.kernel.world.query::<(Entity, &StableId)>();
-            q.iter(&sim.kernel.world)
-                .find(|(_, sid)| sid.0 == a.id)
-                .map(|(e, _)| e)
-        };
-        if let Some(entity) = agent_entity {
-            if let Some(mb) = sim
-                .kernel
-                .world
-                .get::<crate::components::AgentMailbox>(entity)
-            {
-                let unread: Vec<&crate::components::Envelope> = mb.unread();
-                let ids: Vec<u64> = unread.iter().map(|env| env.id).collect();
-                let values: Vec<serde_json::Value> = unread
-                    .iter()
-                    .map(|env| {
-                        serde_json::json!({
-                            "id": env.id,
-                            "from": env.from,
-                            "text": env.text,
-                            "sent_tick": env.sent_tick,
-                        })
-                    })
-                    .collect();
-                if let Some(mut mb_mut) = sim
-                    .kernel
-                    .world
-                    .get_mut::<crate::components::AgentMailbox>(entity)
-                {
-                    mb_mut.mark_read(&ids);
-                }
-                values
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
+    // Canonical shape: self / view / can / inbox / events.
+    // Flat aliases below keep older clients working (slated for removal).
+    let mut v = view;
+    {
+        let obj = v.as_object_mut().expect("view is object");
+        let selfb = obj["self"].clone();
+        let can = obj["can"].clone();
+        for k in [
+            "id", "name", "x", "y", "hp", "max_hp", "wood", "iron", "items", "pack",
+        ] {
+            obj.insert(k.into(), selfb[k].clone());
         }
-    };
-
-    // Canonical shape for GET /api/view (and legacy /api/me):
-    //   self  — body & inventory
-    //   view  — FOV window (map / entities / landmarks)
-    //   can   — legal near-term interactions
-    //   inbox — unread messages (consumed on read)
-    //   events — recent world events
-    // Flat fields kept as aliases so older clients/skills keep working.
-    let self_body = serde_json::json!({
-        "id": a.id,
-        "name": a.name,
-        "x": x,
-        "y": y,
-        "hp": a.hp,
-        "max_hp": a.max_hp,
-        "wood": a.wood,
-        "iron": a.iron,
-        "items": a.items,
-        "pack": a.pack,
-    });
-    let can = serde_json::json!({
-        "interactions": snap.interactions,
-        "underfoot": { "glyph": underfoot, "vision": vis },
-        "here": here,
-        "adjacent": adj,
-    });
-
-    Json(serde_json::json!({
-        "ok": true,
-        "tick": snap.tick,
-        "self": self_body,
-        "view": view,
-        "can": can,
-        "inbox": messages,
-        "events": snap.recent_events,
-        // --- flat aliases (deprecated, still valid) ---
-        "id": a.id,
-        "name": a.name,
-        "x": x, "y": y,
-        "hp": a.hp, "max_hp": a.max_hp,
-        "wood": a.wood, "iron": a.iron,
-        "items": a.items,
-        "pack": a.pack,
-        "underfoot": { "glyph": underfoot, "vision": vis },
-        "here": here,
-        "adjacent": adj,
-        "interactions": snap.interactions,
-        "recent_events": snap.recent_events,
-        "messages": messages,
-    }))
+        obj.insert("underfoot".into(), can["underfoot"].clone());
+        obj.insert("here".into(), can["here"].clone());
+        obj.insert("adjacent".into(), can["adjacent"].clone());
+        obj.insert("interactions".into(), can["interactions"].clone());
+        let events = obj["events"].clone();
+        obj.insert("recent_events".into(), events);
+        let inbox = obj["inbox"].clone();
+        obj.insert("messages".into(), inbox);
+    }
+    Json(v)
 }
 
 async fn api_register(
@@ -1082,7 +844,7 @@ async fn client_ws(mut socket: WebSocket, st: AppState) {
             _ = interval.tick() => {
                 let json = {
                     let mut sim = st.sim.lock().await;
-                    let recent = st.recent_events.lock().await;
+                    let recent = recent_snapshot(&st).await;
                     let snap = if tokens.is_empty() {
                         let grid = sim.kernel.world.resource::<Grid>();
                         let dark = VisionMap::new(grid.width, grid.height);

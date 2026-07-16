@@ -13,13 +13,16 @@ pub fn pickup_items_system(world: &mut World) {
     };
 
     for (agent_e, apos) in agents {
-        let picks: Vec<(Entity, String, crate::components::Matter, u32)> = {
-            let mut q = world.query::<(Entity, &Position, &Item)>();
-            q.iter(world)
-                .filter(|(_, p, _)| p.x == apos.x && p.y == apos.y)
-                .map(|(e, _, it)| (e, it.name(), it.matter.clone(), it.qty))
-                .collect()
-        };
+        let picks: Vec<(Entity, String, crate::components::Matter, u32)> = crate::spatial::at(
+            world, apos.x, apos.y,
+        )
+        .into_iter()
+        .filter_map(|e| {
+            world
+                .get::<Item>(e)
+                .map(|it| (e, it.name(), it.matter.clone(), it.qty))
+        })
+        .collect();
         for (item_e, name, matter, qty) in picks {
             if let Some(mut inv) = world.get_mut::<Inventory>(agent_e) {
                 inv.add(matter, qty);

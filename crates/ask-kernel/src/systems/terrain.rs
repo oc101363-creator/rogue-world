@@ -148,11 +148,11 @@ pub fn apply_close_door(world: &mut World, entity: Entity, dx: i32, dy: i32) {
             });
         return;
     }
-    // don't close on top of anyone standing in the doorway (self included)
-    let occupied = {
-        let mut q = world.query::<&Position>();
-        q.iter(world).any(|p| p.x == tx && p.y == ty)
-    };
+    // don't close on top of anyone standing in the doorway (items are fine)
+    let occupied = crate::spatial::any_at(world, tx, ty, |w, e| {
+        w.get::<crate::components::Agent>(e).is_some()
+            || w.get::<crate::components::Monster>(e).is_some()
+    });
     if occupied {
         world
             .resource_mut::<EventBuf>()

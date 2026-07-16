@@ -23,12 +23,8 @@ pub fn apply_attack(world: &mut World, agent: Entity, dx: i32, dy: i32) {
     let tx = pos.x + dx;
     let ty = pos.y + dy;
 
-    let target = {
-        let mut q = world.query::<(Entity, &Position, &Monster)>();
-        q.iter(world)
-            .find(|(_, p, _)| p.x == tx && p.y == ty)
-            .map(|(e, _, m)| (e, m.name.clone()))
-    };
+    let target = crate::spatial::find_at(world, tx, ty, |w, e| w.get::<Monster>(e).is_some())
+        .map(|e| (e, world.get::<Monster>(e).unwrap().name.clone()));
 
     let Some((mon_e, name)) = target else {
         world

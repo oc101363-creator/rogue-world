@@ -858,8 +858,7 @@ fn change_level_preserves_all_agents_body_and_identity() {
 
 #[test]
 fn monster_targets_nearest_agent_not_first() {
-    use ask_kernel::components::{Agent, Monster, StableId};
-    use bevy_ecs::prelude::With;
+    use ask_kernel::components::{Monster, StableId};
 
     let mut cfg = Config::default();
     cfg.width = 88;

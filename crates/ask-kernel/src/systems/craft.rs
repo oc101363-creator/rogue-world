@@ -156,11 +156,11 @@ pub fn apply_plant(world: &mut World, agent: Entity, dx: i32, dy: i32) {
     world.resource_mut::<Grid>().set(tx, ty, id::TREE);
 
     // harvestable entity if none here
-    let has = {
-        let mut q = world.query::<(&Position, &Resource)>();
-        q.iter(world)
-            .any(|(p, r)| p.x == tx && p.y == ty && r.kind == ResourceKind::Wood)
-    };
+    let has = crate::spatial::any_at(world, tx, ty, |w, e| {
+        w.get::<Resource>(e)
+            .map(|r| r.kind == ResourceKind::Wood)
+            .unwrap_or(false)
+    });
     if !has {
         let idn = {
             let mut c = world.resource_mut::<IdCounter>();
@@ -201,12 +201,7 @@ pub fn apply_deconstruct(world: &mut World, agent: Entity, dx: i32, dy: i32) {
     };
     let (tx, ty) = (pos.x + dx, pos.y + dy);
 
-    let target = {
-        let mut q = world.query::<(Entity, &Position, &Building)>();
-        q.iter(world)
-            .find(|(_, p, _)| p.x == tx && p.y == ty)
-            .map(|(e, _, _)| e)
-    };
+    let target = crate::spatial::find_at(world, tx, ty, |w, e| w.get::<Building>(e).is_some());
     let Some(be) = target else {
         world
             .resource_mut::<EventBuf>()

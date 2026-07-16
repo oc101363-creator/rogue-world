@@ -23,19 +23,14 @@ pub fn apply_build_hut(world: &mut World, agent: Entity) {
         return;
     }
 
-    {
-        let mut q = world.query::<(&Position, &Building)>();
-        for (p, _) in q.iter(world) {
-            if p.x == apos.x && p.y == apos.y {
-                world
-                    .resource_mut::<EventBuf>()
-                    .push(GameEvent::BuildFailed {
-                        entity: agent_id,
-                        reason: "occupied".into(),
-                    });
-                return;
-            }
-        }
+    if crate::spatial::any_at(world, apos.x, apos.y, |w, e| w.get::<Building>(e).is_some()) {
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::BuildFailed {
+                entity: agent_id,
+                reason: "occupied".into(),
+            });
+        return;
     }
 
     let wood = world.get::<Inventory>(agent).map(|i| i.wood()).unwrap_or(0);

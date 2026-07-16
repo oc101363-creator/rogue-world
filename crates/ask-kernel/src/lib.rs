@@ -4,12 +4,14 @@
 //! Thought inherits; code does not.
 
 pub mod actions;
+pub mod agent_view;
 pub mod agents;
 pub mod art;
 pub mod auth;
 pub mod balance;
 pub mod components;
 pub mod config;
+pub mod describe;
 pub mod events;
 pub mod f_info;
 pub mod gateway;
@@ -25,6 +27,7 @@ pub mod r_info;
 pub mod sandbox;
 pub mod serve;
 pub mod skill;
+pub mod spatial;
 pub mod systems;
 pub mod tick;
 pub mod vaults;

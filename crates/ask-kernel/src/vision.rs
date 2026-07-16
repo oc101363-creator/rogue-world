@@ -324,10 +324,31 @@ fn add_origin_fov(grid: &Grid, vis: &mut VisionMap, px: i32, py: i32) {
     }
 }
 
-/// Compute a fresh per-agent FOV map.  GLOW is copied from the level mask so
-/// room light works; LITE is set by the agent's torch.
+/// Sight bbox (clamped) — every per-agent FOV loop should live inside this
+/// rect instead of scanning the whole map.
+pub fn fov_bbox(grid: &Grid, px: i32, py: i32) -> (i32, i32, i32, i32) {
+    (
+        (px - MAX_SIGHT).max(0),
+        (px + MAX_SIGHT).min(grid.width - 1),
+        (py - MAX_SIGHT).max(0),
+        (py + MAX_SIGHT).min(grid.height - 1),
+    )
+}
+
+/// Compute a fresh per-agent FOV map. GLOW is copied only inside the sight
+/// bbox (a GLOW cell without VIEW displays as unseen anyway); LITE comes
+/// from the agent's torch.
 pub fn compute_fov_map(grid: &Grid, glow: &GlowMask, px: i32, py: i32) -> VisionMap {
-    let mut vis = VisionMap::from_glow(grid.width, grid.height, glow);
+    let mut vis = VisionMap::new(grid.width, grid.height);
+    let (x0, x1, y0, y1) = fov_bbox(grid, px, py);
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let i = (y * grid.width + x) as usize;
+            if glow.mask[i] {
+                vis.flags[i] |= F_GLOW;
+            }
+        }
+    }
     add_origin_fov(grid, &mut vis, px, py);
     vis
 }
@@ -434,11 +455,13 @@ pub fn update_agent_memories(world: &mut World) {
 
     for (e, x, y) in agents {
         let fov = compute_fov_map(&grid, &glow, x, y);
+        let (x0, x1, y0, y1) = fov_bbox(&grid, x, y);
         let mut mem = world
             .get_mut::<VisionMemory>(e)
             .expect("agent should have VisionMemory");
-        for cy in 0..glow.height {
-            for cx in 0..glow.width {
+        // Only the sight bbox can be visible now — never scan the full map.
+        for cy in y0..=y1 {
+            for cx in x0..=x1 {
                 if fov.is_visible(cx, cy) {
                     mem.mark(cx, cy);
                 }
@@ -466,9 +489,15 @@ pub fn compute_view_for_agents(world: &World, agents: &[Entity]) -> VisionMap {
             continue;
         };
         let fov = compute_fov_map(&grid, &glow, pos.x, pos.y);
-        for i in 0..out.flags.len() {
-            out.flags[i] |= fov.flags[i] & (F_VIEW | F_LITE);
+        // Current FOV: only the sight bbox can have VIEW/LITE set.
+        let (x0, x1, y0, y1) = fov_bbox(&grid, pos.x, pos.y);
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let i = (y * grid.width + x) as usize;
+                out.flags[i] |= fov.flags[i] & (F_VIEW | F_LITE);
+            }
         }
+        // Memory: full-map OR (remembered cells legitimately span the map).
         if let Some(mem) = world.get::<VisionMemory>(e) {
             for i in 0..out.flags.len() {
                 if mem.flags[i] & F_MARK != 0 {

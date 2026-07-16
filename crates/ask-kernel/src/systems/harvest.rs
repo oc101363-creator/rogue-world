@@ -10,18 +10,12 @@ pub fn apply_harvest(world: &mut World, agent: Entity) {
     };
     let agent_id = stable_id(world, agent);
 
-    let mut target: Option<(Entity, ResourceKind, u32)> = None;
-    {
-        let mut q = world.query::<(Entity, &Position, &Resource)>();
-        for (e, p, r) in q.iter(world) {
-            if p.x == apos.x && p.y == apos.y && r.amount > 0 {
-                target = Some((e, r.kind, r.amount));
-                break;
-            }
-        }
-    }
+    let target = crate::spatial::find_at(world, apos.x, apos.y, |w, e| {
+        w.get::<Resource>(e).map(|r| r.amount > 0).unwrap_or(false)
+    })
+    .map(|e| (e, world.get::<Resource>(e).unwrap().kind));
 
-    let Some((res_e, kind, _amount)) = target else {
+    let Some((res_e, kind)) = target else {
         world
             .resource_mut::<EventBuf>()
             .push(GameEvent::ActionRejected {

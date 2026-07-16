@@ -1,14 +1,15 @@
 //! Viewer projection — glyphs/colors from full f_info table + FOV fog-of-war.
+//!
+//! Entity construction lives in `describe` (one kind vocabulary, one shape);
+//! this module only decides *who may see what* and packs the grid rows.
 
 use bevy_ecs::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::actions::Interaction;
 use crate::art;
-use crate::components::{
-    Agent, AgentProfile, Building, Glyph, Health, Inventory, Item, Matter, Monster, Position,
-    Resource, ResourceKind, StableId,
-};
+use crate::components::{Agent, Building, Position, StableId};
+use crate::describe::viewer_entity;
 use crate::events::GameEvent;
 use crate::f_info;
 use crate::grid::Grid;
@@ -17,37 +18,7 @@ use crate::view;
 use crate::vision::VisionMap;
 use crate::world::TickCounter;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ViewerEntity {
-    pub id: u64,
-    pub kind: String,
-    pub x: i32,
-    pub y: i32,
-    pub glyph: char,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub wood: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub iron: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub amount: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hp: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_hp: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub items: Option<Vec<String>>,
-    /// Structured pack slots (Matter stacks).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pack: Option<Vec<serde_json::Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    /// Monster race template id (presentation catalog key).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub race_id: Option<u16>,
-    /// Object kind template id (presentation catalog key).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind_id: Option<u16>,
-}
+pub use crate::describe::ViewerEntity;
 
 /// Compact row-major FeatId grid for identity-first clients.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -70,7 +41,7 @@ pub struct ViewerSnapshot {
     pub tile_colors: Vec<String>,
     /// Per-cell visibility: ' ' unknown, 'm' memory (MARK only), 'v' visible (VIEW+lit).
     pub vision: Vec<String>,
-    /// Identity grid for FS-HDG / material art (full map; client paints void via vision).
+    /// Identity grid for FS-HDG / material art (masked: unseen cells are feat 0).
     pub feat_ids: FeatIdsPayload,
     /// Bumps when art catalog / overlay changes.
     pub catalog_version: u32,
@@ -177,163 +148,32 @@ pub fn build_viewer_snapshot_with(
 
     let can_see = |x: i32, y: i32| -> bool { vis.is_visible(x, y) };
 
+    // One position scan; per-entity kind/shape from `describe`.
+    let positioned: Vec<(Entity, i32, i32)> = {
+        let mut q = world.query::<(Entity, &Position)>();
+        q.iter(world).map(|(e, p)| (e, p.x, p.y)).collect()
+    };
     let mut entities = Vec::new();
-    {
-        let mut q = world.query::<(
-            &StableId,
-            &Position,
-            &Glyph,
-            &Inventory,
-            &Health,
-            Option<&AgentProfile>,
-            &Agent,
-        )>();
-        for (id, p, g, inv, hp, profile, _) in q.iter(world) {
+    for (e, x, y) in positioned {
+        let is_agent = world.get::<Agent>(e).is_some();
+        if is_agent {
+            // Own tracked agents always shown; others only if visible now.
             if let Some(allowed) = allowed_agents {
-                // Own tracked agents are always shown; any other agent is shown only if visible now.
-                if !allowed.contains(&id.0) && !can_see(p.x, p.y) {
+                let sid = world.get::<StableId>(e).map(|s| s.0).unwrap_or(0);
+                if !allowed.contains(&sid) && !can_see(x, y) {
                     continue;
                 }
             }
-            let pack_labels: Vec<String> = inv
-                .slots
-                .iter()
-                .map(|s| {
-                    if s.qty > 1 {
-                        format!("{}×{}", s.matter.label(), s.qty)
-                    } else {
-                        s.matter.label()
-                    }
-                })
-                .collect();
-            entities.push(ViewerEntity {
-                id: id.0,
-                kind: "agent".into(),
-                x: p.x,
-                y: p.y,
-                glyph: g.0,
-                wood: Some(inv.wood()),
-                iron: Some(inv.iron()),
-                amount: None,
-                hp: Some(hp.hp),
-                max_hp: Some(hp.max_hp),
-                items: Some(pack_labels),
-                pack: Some(inv.to_api()),
-                name: profile.map(|pr| pr.name.clone()),
-                race_id: None,
-                kind_id: None,
-            });
-        }
-    }
-
-    // Only show non-agent entities on currently visible cells.
-    {
-        let mut q = world.query::<(&StableId, &Position, &Glyph, &Resource)>();
-        for (id, p, g, r) in q.iter(world) {
-            if !can_see(p.x, p.y) {
+        } else if world.get::<Building>(e).is_some() {
+            // buildings are terrain-ish: shown if visible OR remembered
+            if !vis.is_visible(x, y) && !vis.is_mark(x, y) {
                 continue;
             }
-            let kind = match r.kind {
-                ResourceKind::Wood => "tree",
-                ResourceKind::Iron => "iron",
-            };
-            entities.push(ViewerEntity {
-                id: id.0,
-                kind: kind.into(),
-                x: p.x,
-                y: p.y,
-                glyph: g.0,
-                wood: None,
-                iron: None,
-                amount: Some(r.amount),
-                hp: None,
-                max_hp: None,
-                items: None,
-                pack: None,
-                name: None,
-                race_id: None,
-                kind_id: None,
-            });
+        } else if !can_see(x, y) {
+            continue;
         }
-    }
-    {
-        let mut q = world.query::<(&StableId, &Position, &Glyph, &Building)>();
-        for (id, p, g, _) in q.iter(world) {
-            // buildings: show if visible OR memorized (they're terrain-ish)
-            if !vis.is_visible(p.x, p.y) && !vis.is_mark(p.x, p.y) {
-                continue;
-            }
-            entities.push(ViewerEntity {
-                id: id.0,
-                kind: "hut".into(),
-                x: p.x,
-                y: p.y,
-                glyph: g.0,
-                wood: None,
-                iron: None,
-                amount: None,
-                hp: None,
-                max_hp: None,
-                items: None,
-                pack: None,
-                name: None,
-                race_id: None,
-                kind_id: None,
-            });
-        }
-    }
-    {
-        let mut q = world.query::<(&StableId, &Position, &Glyph, &Monster, Option<&Health>)>();
-        for (id, p, g, m, hp) in q.iter(world) {
-            if !can_see(p.x, p.y) {
-                continue;
-            }
-            entities.push(ViewerEntity {
-                id: id.0,
-                kind: "monster".into(),
-                x: p.x,
-                y: p.y,
-                glyph: g.0,
-                wood: None,
-                iron: None,
-                amount: None,
-                hp: hp.map(|h| h.hp),
-                max_hp: hp.map(|h| h.max_hp),
-                items: None,
-                pack: None,
-                name: Some(m.name.clone()),
-                race_id: Some(m.race_id),
-                kind_id: None,
-            });
-        }
-    }
-    {
-        let mut q = world.query::<(&StableId, &Position, &Glyph, &Item)>();
-        for (id, p, g, it) in q.iter(world) {
-            if !can_see(p.x, p.y) {
-                continue;
-            }
-            let kind_id = match &it.matter {
-                Matter::Object { kind_id, .. } => Some(*kind_id),
-                _ => None,
-            };
-            entities.push(ViewerEntity {
-                id: id.0,
-                kind: "item".into(),
-                x: p.x,
-                y: p.y,
-                glyph: g.0,
-                wood: None,
-                iron: None,
-                amount: Some(it.qty),
-                hp: None,
-                max_hp: None,
-                items: None,
-                pack: None,
-                name: Some(it.name()),
-                race_id: None,
-                kind_id,
-            });
+        if let Some(v) = viewer_entity(world, e) {
+            entities.push(v);
         }
     }
     entities.sort_by_key(|e| e.id);

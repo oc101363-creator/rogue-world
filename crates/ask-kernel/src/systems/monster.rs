@@ -95,11 +95,7 @@ pub fn process_monsters_system(world: &mut World) {
         if f_info::table().is_closed_door(world.resource::<Grid>().get(nx, ny).unwrap_or(0)) {
             continue;
         }
-        let blocked = {
-            let mut q = world.query_filtered::<&Position, With<Monster>>();
-            q.iter(world).any(|p| p.x == nx && p.y == ny)
-        };
-        if blocked {
+        if crate::spatial::any_at(world, nx, ny, |w, e| w.get::<Monster>(e).is_some()) {
             continue;
         }
         // stepping onto ANY agent's cell = attack that agent instead

@@ -26,26 +26,22 @@ pub fn list_at(world: &mut World, agent: Entity, dx: i32, dy: i32) -> Vec<Intera
     let underfoot = dx == 0 && dy == 0;
     let mut out = Vec::new();
 
-    {
-        let mut q = world.query::<(Entity, &Position, &Monster, &StableId)>();
-        for (_e, p, m, sid) in q.iter(world) {
-            if p.x == tx && p.y == ty {
-                out.push(Interaction {
-                    dx,
-                    dy,
-                    verb: "attack".into(),
-                    label: format!("attack {}", m.name),
-                    target_id: Some(sid.0),
-                    slot: None,
-                    recipe: None,
-                });
-            }
+    // One spatial scan; dispatch on components per entity found.
+    for e in crate::spatial::at(world, tx, ty) {
+        let sid = world.get::<StableId>(e).map(|s| s.0);
+        if let Some(m) = world.get::<Monster>(e) {
+            out.push(Interaction {
+                dx,
+                dy,
+                verb: "attack".into(),
+                label: format!("attack {}", m.name),
+                target_id: sid,
+                slot: None,
+                recipe: None,
+            });
         }
-    }
-    {
-        let mut q = world.query::<(Entity, &Position, &Resource, &StableId)>();
-        for (_e, p, r, sid) in q.iter(world) {
-            if p.x == tx && p.y == ty && r.amount > 0 {
+        if let Some(r) = world.get::<Resource>(e) {
+            if r.amount > 0 {
                 let kind = match r.kind {
                     crate::components::ResourceKind::Wood => "wood",
                     crate::components::ResourceKind::Iron => "iron",
@@ -55,43 +51,33 @@ pub fn list_at(world: &mut World, agent: Entity, dx: i32, dy: i32) -> Vec<Intera
                     dy,
                     verb: "harvest".into(),
                     label: format!("harvest {kind} ({})", r.amount),
-                    target_id: Some(sid.0),
+                    target_id: sid,
                     slot: None,
                     recipe: None,
                 });
             }
         }
-    }
-    {
-        let mut q = world.query::<(Entity, &Position, &Item, &StableId)>();
-        for (_e, p, it, sid) in q.iter(world) {
-            if p.x == tx && p.y == ty {
-                out.push(Interaction {
-                    dx,
-                    dy,
-                    verb: "pickup".into(),
-                    label: format!("pick up {}", it.name()),
-                    target_id: Some(sid.0),
-                    slot: None,
-                    recipe: None,
-                });
-            }
+        if let Some(it) = world.get::<Item>(e) {
+            out.push(Interaction {
+                dx,
+                dy,
+                verb: "pickup".into(),
+                label: format!("pick up {}", it.name()),
+                target_id: sid,
+                slot: None,
+                recipe: None,
+            });
         }
-    }
-    {
-        let mut q = world.query::<(Entity, &Position, &Building, &StableId)>();
-        for (_e, p, _, sid) in q.iter(world) {
-            if p.x == tx && p.y == ty {
-                out.push(Interaction {
-                    dx,
-                    dy,
-                    verb: "deconstruct".into(),
-                    label: "deconstruct hut".into(),
-                    target_id: Some(sid.0),
-                    slot: None,
-                    recipe: None,
-                });
-            }
+        if world.get::<Building>(e).is_some() {
+            out.push(Interaction {
+                dx,
+                dy,
+                verb: "deconstruct".into(),
+                label: "deconstruct hut".into(),
+                target_id: sid,
+                slot: None,
+                recipe: None,
+            });
         }
     }
 
@@ -205,10 +191,7 @@ pub fn list_at(world: &mut World, agent: Entity, dx: i32, dy: i32) -> Vec<Intera
     }
 
     if underfoot && world.resource::<Grid>().buildable(tx, ty) {
-        let occupied = {
-            let mut q = world.query::<(&Position, &Building)>();
-            q.iter(world).any(|(p, _)| p.x == tx && p.y == ty)
-        };
+        let occupied = crate::spatial::any_at(world, tx, ty, |w, e| w.get::<Building>(e).is_some());
         let wood = world.get::<Inventory>(agent).map(|i| i.wood()).unwrap_or(0);
         let cost = world
             .get_resource::<KernelConfig>()
