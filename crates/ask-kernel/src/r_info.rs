@@ -59,6 +59,14 @@ impl MonsterTable {
             .find(|(name, _)| name.contains(&n))
             .and_then(|(_, id)| self.get(*id))
     }
+
+    /// Iterate all loaded races as (id, race).
+    pub fn iter(&self) -> impl Iterator<Item = (u16, &MonsterRace)> {
+        self.by_id
+            .iter()
+            .enumerate()
+            .filter_map(|(i, r)| r.as_ref().map(|race| (i as u16, race)))
+    }
 }
 
 static TABLE: OnceLock<MonsterTable> = OnceLock::new();

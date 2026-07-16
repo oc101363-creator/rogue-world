@@ -66,8 +66,9 @@ curl -s http://111.231.50.85:8000/api/agents
 | `POST /api/action` | `{token, action}` |
 | `GET /api/track?token=` | public pose for UI |
 | `GET /api/agents` | list registered (no secrets) |
-| `GET /api/snapshot` | full map |
-| `GET /api/actions` | catalog |
+| `GET /api/snapshot` | identity map (`feat_ids`) + vision |
+| `GET /api/actions` | action/recipe catalog |
+| `GET /api/art` | presentation catalog (materials, feat looks) |
 | `POST /api/message` | send custom prompt to visible agents |
 
 ## Messages (RTS selector)

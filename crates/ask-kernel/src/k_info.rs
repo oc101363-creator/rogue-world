@@ -43,6 +43,14 @@ impl ObjectTable {
         self.get(list[rng_idx % list.len()])
     }
 
+    /// Iterate all loaded object kinds as (id, kind).
+    pub fn iter(&self) -> impl Iterator<Item = (u16, &ObjectKind)> {
+        self.by_id
+            .iter()
+            .enumerate()
+            .filter_map(|(i, k)| k.as_ref().map(|kind| (i as u16, kind)))
+    }
+
     pub fn find_name_contains(&self, needle: &str) -> Option<&ObjectKind> {
         let n = needle.to_ascii_lowercase();
         for id in &self.all_ids {

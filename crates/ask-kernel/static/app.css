@@ -2,24 +2,25 @@
 
 :root {
   /* Design tokens from Rogue-80 */
-  --r80-primary: #00ff00;
-  --r80-secondary: #ffff00;
-  --r80-tertiary: #ff0000;
+  /* FS-HDG design tokens */
+  --r80-primary: #00ff66;
+  --r80-secondary: #ffcc00;
+  --r80-tertiary: #ff3333;
   --r80-neutral: #000000;
-  --r80-neutral-variant: #1e1e1e;
+  --r80-neutral-variant: #1c1c1c;
   --r80-text: #ffffff;
-  --r80-accent: #00ffff;
+  --r80-accent: #00e5ff;
 
   --bg: var(--r80-neutral);
   --hud: var(--r80-text);
   --hud-muted: var(--r80-primary);
   --online: var(--r80-primary);
   --offline: var(--r80-tertiary);
-  --panel-border: var(--r80-text);
+  --panel-border: var(--r80-accent);
   --panel-bg: var(--r80-neutral);
 
-  --font-mono: "Courier New", Courier, Monaco, monospace;
-  --fs-ui: 12px;
+  --font-mono: "Perfect DOS VGA 437", "Courier New", Courier, Monaco, monospace;
+  --fs-ui: 13px;
   --fs-body: 14px;
   --fs-head: 20px;
   --space-xs: 4px;
@@ -197,7 +198,8 @@ body {
   align-items: stretch;
   min-width: 18ch;
   background: var(--r80-neutral);
-  border: 1px solid var(--r80-text);
+  border: 2px solid var(--r80-accent);
+  box-shadow: inset 0 0 0 1px var(--r80-neutral-variant);
   padding: var(--space-sm);
   pointer-events: auto;
 }
@@ -279,7 +281,8 @@ body {
   max-height: calc(100vh - 80px);
   overflow: auto;
   background: var(--r80-neutral);
-  border: 1px solid var(--r80-text);
+  border: 2px solid var(--r80-accent);
+  box-shadow: inset 0 0 0 1px var(--r80-neutral-variant);
   padding: var(--space-sm);
   pointer-events: auto;
   display: flex;
@@ -315,7 +318,8 @@ body {
   max-height: calc(100vh - 80px);
   overflow: auto;
   background: var(--r80-neutral);
-  border: 1px solid var(--r80-text);
+  border: 2px solid var(--r80-accent);
+  box-shadow: inset 0 0 0 1px var(--r80-neutral-variant);
   padding: var(--space-sm);
   pointer-events: auto;
   display: flex;
@@ -401,7 +405,8 @@ body {
   overflow: hidden;
   z-index: 4;
   background: var(--r80-neutral);
-  border: 1px solid var(--r80-text);
+  border: 2px solid var(--r80-accent);
+  box-shadow: inset 0 0 0 1px var(--r80-neutral-variant);
   padding: var(--space-sm);
   color: var(--r80-text);
   font-size: var(--fs-ui);

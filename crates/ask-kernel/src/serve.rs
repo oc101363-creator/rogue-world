@@ -258,6 +258,7 @@ pub async fn run_server(port: u16, tick_ms: u64, cfg: Config) -> Result<()> {
         .route("/api/track", get(api_track))
         .route("/api/entity", get(api_entity))
         .route("/api/cell", get(api_cell))
+        .route("/api/art", get(api_art))
         .route("/api/message", post(api_message_send))
         .route("/ws", get(ws_handler))
         .route_service("/", ServeFile::new(index))
@@ -272,7 +273,9 @@ pub async fn run_server(port: u16, tick_ms: u64, cfg: Config) -> Result<()> {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     eprintln!("[ask] http://{addr}/");
-    eprintln!("[ask] GET  /api/snapshot /api/me /api/actions /api/agents /api/track /api/entity /api/cell");
+    eprintln!(
+        "[ask] GET  /api/snapshot /api/me /api/actions /api/agents /api/track /api/entity /api/cell /api/art"
+    );
     eprintln!("[ask] POST /api/register /api/action /api/control /api/message");
     eprintln!("[ask] WS   /ws");
     eprintln!("[ask] tick {tick_ms}ms");
@@ -570,6 +573,19 @@ fn player_visible_map(
     }
 
     Some(vision::compute_view_for_agents(world, &agent_entities))
+}
+
+async fn api_art() -> impl IntoResponse {
+    let c = crate::art::catalog();
+    Json(serde_json::json!({
+        "ok": true,
+        "catalog_version": c.catalog_version,
+        "materials": c.materials,
+        "feats": c.feats,
+        "races": c.races,
+        "objects": c.objects,
+        "entity_defaults": c.entity_defaults,
+    }))
 }
 
 async fn api_entity(

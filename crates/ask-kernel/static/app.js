@@ -46,7 +46,7 @@ let mapH = 0;
 let lastSnap = null;
 let viewCols = 0;
 let viewRows = 0;
-let theme = getTheme(localStorage.getItem(THEME_KEY) || "rogue-80");
+let theme = getTheme(localStorage.getItem(THEME_KEY) || "fs-hdg");
 let ws = null;
 let humanControl = false;
 let lastMe = null;
@@ -648,6 +648,8 @@ function drawSnap(snap) {
   const y0 = cam.ty;
   const colorRows = snap.tile_colors || [];
   const visRows = snap.vision || [];
+  const feats = typeof decodeFeatIds === "function" ? decodeFeatIds(snap.feat_ids) : null;
+  const useIdentity = !!(feats && typeof artCatalog !== "undefined" && artCatalog);
 
   d.clear();
   for (let vy = 0; vy < viewRows; vy++) {
@@ -661,27 +663,41 @@ function drawSnap(snap) {
         d.draw(vx, vy, " ", theme.void, theme.void);
         continue;
       }
-      const vch = visRow[wx] || "v"; // default visible if server old
+      const vch = visRow[wx] || " ";
       if (vch === " " || vch === "\0") {
-        // unexplored darkness
         d.draw(vx, vy, " ", theme.void, theme.void);
         continue;
       }
-      const ch = row[wx] || " ";
-      const letter = colorRow[wx] || "w";
-      let fg = letterFg(letter);
-      let bg = theme.cellBg(letter, ch);
+      let ch;
+      let fg;
+      let bg;
+      if (useIdentity) {
+        const fid = feats[wy * mapW + wx];
+        const look = lookForFeat(fid);
+        ch = look.glyph || "?";
+        fg = materialColor(look.material, theme);
+        bg = theme.void;
+        if (look.material === "aquifer") bg = "#001028";
+        if (look.material === "magma") bg = "#1a0800";
+        if (look.material === "organic") bg = "#0a1008";
+        if (look.material === "granite") bg = "#101010";
+      } else {
+        ch = row[wx] || " ";
+        const letter = colorRow[wx] || "w";
+        fg = letterFg(letter);
+        bg = theme.cellBg ? theme.cellBg(letter, ch) : theme.void;
+      }
       if (vch === "m") {
-        // remembered: dim fog of war
-        fg = dimColor(fg, 0.38);
-        bg = dimColor(bg, 0.45);
+        const f = theme.memoryFactor || 0.4;
+        fg = dimColor(fg, f);
+        bg = dimColor(bg, f + 0.05);
       }
       d.draw(vx, vy, ch, fg, bg);
     }
   }
 
   const ents = snap.entities || [];
-  const e = theme.entities;
+  const e = theme.entities || {};
   const SELECT_BG = theme.selection || "#003333";
   const trackedIds = new Set(
     tracked.map((t) => t.agent_id).filter((id) => id != null),
@@ -691,30 +707,47 @@ function drawSnap(snap) {
     const vy = ent.y - y0;
     if (vx < 0 || vy < 0 || vx >= viewCols || vy >= viewRows) continue;
     if (ent.kind === "agent") {
-      if (!trackedIds.has(ent.id)) continue; // only show explicitly tracked agents
-      // color by tracker if registered
+      // Server already FOV-gates; show all agents in snapshot.
+      // Tracked agents keep personal color; others use catalog/theme.
+      const look =
+        typeof lookForEntity === "function"
+          ? lookForEntity(ent)
+          : { glyph: "@", material: "ui_warning" };
       const tr = tracked.find((t) => t.agent_id === ent.id);
-      const fg = tr ? tr.color : e.agent;
-      const glyph = ent.name ? ent.name[0].toUpperCase() : "@";
-      let bg = e.entityBg;
-      if (selectedAgentIds.has(ent.id)) {
-        bg = SELECT_BG;
+      let fg = tr
+        ? tr.color
+        : typeof materialColor === "function"
+          ? materialColor(look.material, theme)
+          : e.agent || "#FFCC00";
+      let bg = selectedAgentIds.has(ent.id) ? SELECT_BG : theme.void;
+      let glyph = look.glyph || "@";
+      if (ent.name && /[A-Za-z]/.test(ent.name[0])) {
+        glyph = ent.name[0].toUpperCase();
       }
-      d.draw(vx, vy, glyph === "@" || !/[A-Za-z]/.test(glyph) ? "@" : glyph, fg, bg);
+      // Still draw untracked agents that made it into the snapshot (visible).
+      if (!trackedIds.has(ent.id) && trackedIds.size > 0) {
+        // show foreign agents with catalog look
+      }
+      d.draw(vx, vy, glyph, fg, bg);
     } else {
-      const fg = e[ent.kind] || e.iron;
-      d.draw(vx, vy, ent.glyph || "?", fg, e.entityBg);
+      const look =
+        typeof lookForEntity === "function"
+          ? lookForEntity(ent)
+          : { glyph: ent.glyph || "?", material: ent.kind };
+      const fg =
+        typeof materialColor === "function"
+          ? materialColor(look.material, theme)
+          : e[ent.kind] || e.iron || "#fff";
+      d.draw(vx, vy, look.glyph || ent.glyph || "?", fg, theme.void);
     }
   }
-  // tracked markers even if name missing
+  // tracked focus ring
   for (const t of tracked) {
     if (t.x == null || t.y == null) continue;
     const vx = t.x - x0;
     const vy = t.y - y0;
     if (vx < 0 || vy < 0 || vx >= viewCols || vy >= viewRows) continue;
-    // ring: redraw @ with track color (already done if agent_id match)
     if (followToken === t.token) {
-      // highlight underfoot with accent
       d.draw(vx, vy, "@", t.color, "#1e1e1e");
     }
   }
@@ -914,6 +947,9 @@ function applySnapshot(snap) {
   if (!snap || snap.type !== "snapshot") return;
   const prevTick = lastSnap ? lastSnap.tick : -1;
   lastSnap = snap;
+  if (snap.catalog_version != null && typeof ensureArtCatalog === "function") {
+    ensureArtCatalog(snap.catalog_version).catch(function () {});
+  }
 
   const ents = snap.entities || [];
   const trackedIds = new Set(
@@ -1444,6 +1480,11 @@ window.addEventListener("resize", () => {
 function connect() {
   elStatus.textContent = "connecting";
   elStatus.className = "offline";
+  if (typeof ensureArtCatalog === "function") {
+    ensureArtCatalog().catch(function () {
+      pushLog("ART: catalog load failed");
+    });
+  }
   ws = new WebSocket(WS_URL);
   ws.onopen = () => {
     elStatus.textContent = "live";

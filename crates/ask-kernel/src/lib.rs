@@ -5,6 +5,7 @@
 
 pub mod actions;
 pub mod agents;
+pub mod art;
 pub mod auth;
 pub mod components;
 pub mod config;

@@ -1,0 +1,56 @@
+# FS-HDG presentation overlay — pure data, never read by systems/*.
+catalog_version = 1
+
+[materials]
+basalt = "#555555"
+granite = "#AAAAAA"
+gold = "#FFD700"
+aquifer = "#0055FF"
+magma = "#FF4500"
+organic = "#8B5A2B"
+void = "#000000"
+ui_primary = "#00FF66"
+ui_warning = "#FFCC00"
+ui_danger = "#FF3333"
+ui_info = "#00E5FF"
+text_white = "#FFFFFF"
+depth_shadow = "#2A2A2A"
+
+# Feat id overrides (string keys)
+[feats.96]
+glyph = "♣"
+material = "organic"
+
+[feats.83]
+glyph = "≈"
+material = "aquifer"
+
+[feats.84]
+glyph = "~"
+material = "aquifer"
+
+[feats.85]
+glyph = "≈"
+material = "magma"
+
+[feats.86]
+glyph = "~"
+material = "magma"
+
+[feats.88]
+material = "organic"
+
+[feats.89]
+material = "organic"
+
+[feats.56]
+material = "granite"
+
+[feats.57]
+material = "granite"
+
+[feats.58]
+material = "granite"
+
+[feats.59]
+material = "granite"
