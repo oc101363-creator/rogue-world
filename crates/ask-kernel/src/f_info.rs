@@ -30,6 +30,12 @@ pub struct FeatInfo {
     pub tree: bool,
     pub less: bool, // up stairs
     pub more: bool, // down stairs
+    /// Frog FF_LOS — light/sight passes through this cell (not a sight-blocker).
+    pub los: bool,
+    /// Frog FF_PROJECT — projectiles pass.
+    pub project: bool,
+    /// Frog FF_REMEMBER — always memorize when seen (walls/doors/stairs…).
+    pub remember: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -75,6 +81,15 @@ impl FeatTable {
     pub fn is_open_door(&self, id: u16) -> bool {
         matches!(id, id::OPEN_DOOR | id::BROKEN_DOOR)
             || self.get(id).map(|f| f.door && f.walk).unwrap_or(false)
+    }
+
+    /// Frog `cave_los_bold` / `cave_los_grid` — can LOS pass *through* this cell?
+    pub fn allows_los(&self, id: u16) -> bool {
+        self.get(id).map(|f| f.los).unwrap_or(false)
+    }
+
+    pub fn remember(&self, id: u16) -> bool {
+        self.get(id).map(|f| f.remember).unwrap_or(false)
     }
 
     pub fn count(&self) -> usize {
@@ -233,6 +248,10 @@ fn parse_f_info() -> FeatTable {
         let tree = up.contains("TREE") || name.to_ascii_uppercase().contains("TREE");
         let less = up.contains("LESS");
         let more = up.contains("MORE");
+        let los = up.contains("LOS");
+        let project = up.contains("PROJECT");
+        // REMEMBER is the memorization flag; walls often have it without LOS
+        let remember = up.contains("REMEMBER");
         // shallow water still MOVE in frog; deep water often not — trust F:MOVE only for walk
         let info = FeatInfo {
             id,
@@ -250,6 +269,9 @@ fn parse_f_info() -> FeatTable {
             tree,
             less,
             more,
+            los,
+            project,
+            remember,
         };
         let idx = id as usize;
         if by_id.len() <= idx {

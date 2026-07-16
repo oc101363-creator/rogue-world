@@ -1,4 +1,4 @@
-//! Item pickup when agent shares a cell with an Item.
+//! Auto-pickup when agent shares a cell with an Item.
 
 use bevy_ecs::prelude::*;
 
@@ -13,25 +13,27 @@ pub fn pickup_items_system(world: &mut World) {
     };
 
     for (agent_e, apos) in agents {
-        let picks: Vec<(Entity, String)> = {
+        let picks: Vec<(Entity, String, crate::components::Matter, u32)> = {
             let mut q = world.query::<(Entity, &Position, &Item)>();
             q.iter(world)
                 .filter(|(_, p, _)| p.x == apos.x && p.y == apos.y)
-                .map(|(e, _, it)| (e, it.name.clone()))
+                .map(|(e, _, it)| (e, it.name(), it.matter.clone(), it.qty))
                 .collect()
         };
-        for (item_e, name) in picks {
+        for (item_e, name, matter, qty) in picks {
             if let Some(mut inv) = world.get_mut::<Inventory>(agent_e) {
-                inv.items.push(name.clone());
+                inv.add(matter, qty);
             }
             let aid = stable_id(world, agent_e);
             let iid = stable_id(world, item_e);
-            world.resource_mut::<EventBuf>().push(GameEvent::ItemPickedUp {
-                entity: aid,
-                item: iid,
-                name,
-                at: (apos.x, apos.y),
-            });
+            world
+                .resource_mut::<EventBuf>()
+                .push(GameEvent::ItemPickedUp {
+                    entity: aid,
+                    item: iid,
+                    name,
+                    at: (apos.x, apos.y),
+                });
             world.despawn(item_e);
         }
     }

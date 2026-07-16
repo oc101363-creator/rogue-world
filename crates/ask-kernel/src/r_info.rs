@@ -89,9 +89,7 @@ fn parse() -> MonsterTable {
             t.by_id.resize_with(idx + 1, || None);
         }
         t.by_glyph.entry(glyph).or_default().push(id);
-        t.by_name
-            .entry(name.to_ascii_lowercase())
-            .or_insert(id);
+        t.by_name.entry(name.to_ascii_lowercase()).or_insert(id);
         t.by_id[idx] = Some(race);
     };
 

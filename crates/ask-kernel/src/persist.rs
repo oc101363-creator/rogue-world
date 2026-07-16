@@ -1,4 +1,4 @@
-//! Whole-world save — cells are frog f_info ids.
+//! Whole-world save — cells are frog f_info ids; agents keep full Matter pack.
 
 use anyhow::{bail, Context, Result};
 use bevy_ecs::prelude::*;
@@ -8,9 +8,9 @@ use std::path::Path;
 
 use crate::actions::ActionQueue;
 use crate::components::{
-    Agent, Building, Glyph, Inventory, Position, Resource, ResourceKind, StableId,
+    Agent, Building, Glyph, Health, Inventory, Matter, Position, Resource, ResourceKind, StableId,
+    Stack,
 };
-use crate::config::Config;
 use crate::events::EventBuf;
 use crate::f_info::FeatId;
 use crate::grid::Grid;
@@ -34,8 +34,18 @@ pub enum EntitySnap {
         id: u64,
         x: i32,
         y: i32,
+        /// Full pack (preferred).
+        #[serde(default)]
+        pack: Vec<Stack>,
+        /// Legacy fields for old saves.
+        #[serde(default)]
         wood: u32,
+        #[serde(default)]
         iron: u32,
+        #[serde(default)]
+        hp: Option<i32>,
+        #[serde(default)]
+        max_hp: Option<i32>,
     },
     Tree {
         id: u64,
@@ -67,14 +77,17 @@ pub fn capture(world: &mut World) -> WorldSnapshot {
 
     let mut entities = Vec::new();
 
-    let mut q_agent = world.query::<(&StableId, &Position, &Inventory, &Agent)>();
-    for (id, p, inv, _) in q_agent.iter(world) {
+    let mut q_agent = world.query::<(&StableId, &Position, &Inventory, Option<&Health>, &Agent)>();
+    for (id, p, inv, hp, _) in q_agent.iter(world) {
         entities.push(EntitySnap::Agent {
             id: id.0,
             x: p.x,
             y: p.y,
-            wood: inv.wood,
-            iron: inv.iron,
+            pack: inv.slots.clone(),
+            wood: inv.wood(),
+            iron: inv.iron(),
+            hp: hp.map(|h| h.hp),
+            max_hp: hp.map(|h| h.max_hp),
         });
     }
 
@@ -144,18 +157,42 @@ pub fn restore(snap: WorldSnapshot) -> KernelWorld {
                 id,
                 x,
                 y,
+                pack,
                 wood,
                 iron,
+                hp,
+                max_hp,
             } => {
+                let mut inv = Inventory { slots: pack };
+                // legacy fallback
+                if inv.slots.is_empty() {
+                    if wood > 0 {
+                        inv.add(
+                            Matter::Resource {
+                                resource: ResourceKind::Wood,
+                            },
+                            wood,
+                        );
+                    }
+                    if iron > 0 {
+                        inv.add(
+                            Matter::Resource {
+                                resource: ResourceKind::Iron,
+                            },
+                            iron,
+                        );
+                    }
+                }
+                let health = Health {
+                    hp: hp.unwrap_or(20),
+                    max_hp: max_hp.unwrap_or(20),
+                };
                 world.spawn((
                     Agent,
                     Position { x, y },
                     Glyph('A'),
-                    Inventory {
-                        wood,
-                        iron,
-                        items: Vec::new(),
-                    },
+                    inv,
+                    health,
                     StableId(id),
                 ));
             }
@@ -187,28 +224,27 @@ pub fn restore(snap: WorldSnapshot) -> KernelWorld {
         }
     }
 
+    crate::vision::install_and_update(&mut world, None);
     KernelWorld { world }
 }
 
 pub fn save_to_path(world: &mut World, path: impl AsRef<Path>) -> Result<()> {
+    let path = path.as_ref();
     let snap = capture(world);
-    if let Some(parent) = path.as_ref().parent() {
-        fs::create_dir_all(parent)?;
+    let json = serde_json::to_string_pretty(&snap).context("serialize")?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).ok();
     }
-    let s = serde_json::to_string_pretty(&snap)?;
-    fs::write(path, s)?;
+    fs::write(path, json).with_context(|| format!("write {}", path.display()))?;
     Ok(())
 }
 
 pub fn load_from_path(path: impl AsRef<Path>) -> Result<KernelWorld> {
-    let s = fs::read_to_string(path).context("read save")?;
-    let snap: WorldSnapshot = serde_json::from_str(&s).context("parse save")?;
-    if snap.width < 3 || snap.height < 3 {
-        bail!("invalid map size");
+    let path = path.as_ref();
+    let s = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let snap: WorldSnapshot = serde_json::from_str(&s).context("parse world json")?;
+    if snap.cells.len() != (snap.width * snap.height) as usize {
+        bail!("cell count mismatch");
     }
     Ok(restore(snap))
-}
-
-pub fn new_default() -> KernelWorld {
-    KernelWorld::new(&Config::default())
 }

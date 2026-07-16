@@ -1,4 +1,4 @@
-//! Action queue — Frog do_cmd → effect, deferred to tick apply phase.
+//! Minimal action primitives. World options come from Interact discovery.
 
 use bevy_ecs::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -6,16 +6,39 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Action {
-    Move { dx: i32, dy: i32 },
-    Harvest,
-    BuildHut,
-    /// Open a closed/secret door on an adjacent cell (or underfoot).
-    OpenDoor { dx: i32, dy: i32 },
-    /// Close an open door adjacent / underfoot.
-    CloseDoor { dx: i32, dy: i32 },
-    /// Use stairs on current cell: true = down (>), false = up (<).
-    UseStairs { down: bool },
+    Move {
+        dx: i32,
+        dy: i32,
+    },
+    /// Use cell (dx,dy). verb from interactions[].
+    /// slot: pack index (place). recipe: craft id (craft).
+    Interact {
+        dx: i32,
+        dy: i32,
+        #[serde(default)]
+        verb: Option<String>,
+        #[serde(default)]
+        slot: Option<usize>,
+        #[serde(default)]
+        recipe: Option<String>,
+    },
+    Drop {
+        index: usize,
+    },
+    Rest,
     Idle,
+}
+
+impl Action {
+    pub fn catalog() -> serde_json::Value {
+        serde_json::json!([
+            {"type":"move","note":"four-way unit step"},
+            {"type":"interact","note":"verbs: dig scoop place harvest plant build deconstruct craft open close attack pickup stairs…; recipe for craft; slot for place"},
+            {"type":"drop","note":"drop pack slots[index] underfoot"},
+            {"type":"rest","note":"heal 1 HP"},
+            {"type":"idle","note":"wait"},
+        ])
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -24,7 +47,6 @@ pub struct QueuedAction {
     pub action: Action,
 }
 
-/// Per-tick intent buffer (Frog: commands collected before world settles).
 #[derive(Resource, Default, Debug)]
 pub struct ActionQueue {
     pub items: Vec<QueuedAction>,
@@ -38,4 +60,18 @@ impl ActionQueue {
     pub fn push(&mut self, entity: Entity, action: Action) {
         self.items.push(QueuedAction { entity, action });
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Interaction {
+    pub dx: i32,
+    pub dy: i32,
+    pub verb: String,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slot: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipe: Option<String>,
 }

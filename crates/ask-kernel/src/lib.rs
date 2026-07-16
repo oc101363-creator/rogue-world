@@ -5,6 +5,7 @@
 
 pub mod actions;
 pub mod agents;
+pub mod auth;
 pub mod components;
 pub mod config;
 pub mod events;
@@ -12,18 +13,22 @@ pub mod f_info;
 pub mod gateway;
 pub mod generate; // generate/mod.rs
 pub mod grid;
+pub mod inspect;
 pub mod k_info;
 pub mod memory;
-pub mod r_info;
-pub mod vaults;
 pub mod org;
 pub mod persist;
+pub mod player;
+pub mod r_info;
+pub mod sandbox;
 pub mod serve;
 pub mod skill;
 pub mod systems;
 pub mod tick;
+pub mod vaults;
 pub mod view;
 pub mod viewer;
+pub mod vision;
 pub mod world;
 
 pub use config::Config;

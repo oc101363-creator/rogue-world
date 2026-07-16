@@ -11,6 +11,7 @@ use crate::systems::{
     advance_tick_system, apply_actions_system, begin_tick_system, pickup_items, process_monsters,
 };
 use crate::view;
+use crate::vision;
 use crate::world::{KernelConfig, KernelWorld};
 
 pub struct Sim {
@@ -59,6 +60,10 @@ impl Sim {
             let hut = self.kernel.world.resource::<KernelConfig>().hut_wood_cost;
             self.kernel.change_level(p.seed, p.depth, hut, 4, 4);
         }
+
+        // Frog update_view after player/monsters settle
+        vision::update_view(&mut self.kernel.world);
+        vision::update_agent_memories(&mut self.kernel.world);
 
         advance_tick_system(&mut self.kernel.world);
     }

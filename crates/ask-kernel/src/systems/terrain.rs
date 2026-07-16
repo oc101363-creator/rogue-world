@@ -20,7 +20,9 @@ pub fn on_enter_cell(world: &mut World, entity: Entity, x: i32, y: i32) {
 
     // --- traps (HIT_TRAP) ---
     if table.is_trap(feat) {
-        let name = info.map(|f| f.name.clone()).unwrap_or_else(|| "trap".into());
+        let name = info
+            .map(|f| f.name.clone())
+            .unwrap_or_else(|| "trap".into());
         let damage = trap_damage(feat);
         if let Some(mut hp) = world.get_mut::<Health>(entity) {
             hp.damage(damage);
@@ -28,19 +30,23 @@ pub fn on_enter_cell(world: &mut World, entity: Entity, x: i32, y: i32) {
         // clear trap → floor (frog often leaves mimic; we simplify to floor)
         world.resource_mut::<Grid>().set(x, y, id::FLOOR);
         let hp_now = world.get::<Health>(entity).map(|h| h.hp).unwrap_or(0);
-        world.resource_mut::<EventBuf>().push(GameEvent::TrapTriggered {
-            entity: eid,
-            feat,
-            name,
-            damage,
-            at: (x, y),
-        });
-        world.resource_mut::<EventBuf>().push(GameEvent::TerrainDamage {
-            entity: eid,
-            kind: "trap".into(),
-            damage,
-            hp: hp_now,
-        });
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::TrapTriggered {
+                entity: eid,
+                feat,
+                name,
+                damage,
+                at: (x, y),
+            });
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::TerrainDamage {
+                entity: eid,
+                kind: "trap".into(),
+                damage,
+                hp: hp_now,
+            });
         return;
     }
 
@@ -51,12 +57,14 @@ pub fn on_enter_cell(world: &mut World, entity: Entity, x: i32, y: i32) {
             hp.damage(damage);
         }
         let hp_now = world.get::<Health>(entity).map(|h| h.hp).unwrap_or(0);
-        world.resource_mut::<EventBuf>().push(GameEvent::TerrainDamage {
-            entity: eid,
-            kind: "lava".into(),
-            damage,
-            hp: hp_now,
-        });
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::TerrainDamage {
+                entity: eid,
+                kind: "lava".into(),
+                damage,
+                hp: hp_now,
+            });
         return;
     }
 
@@ -67,12 +75,14 @@ pub fn on_enter_cell(world: &mut World, entity: Entity, x: i32, y: i32) {
             hp.damage(damage);
         }
         let hp_now = world.get::<Health>(entity).map(|h| h.hp).unwrap_or(0);
-        world.resource_mut::<EventBuf>().push(GameEvent::TerrainDamage {
-            entity: eid,
-            kind: "deep_water".into(),
-            damage,
-            hp: hp_now,
-        });
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::TerrainDamage {
+                entity: eid,
+                kind: "deep_water".into(),
+                damage,
+                hp: hp_now,
+            });
     }
 }
 
@@ -94,24 +104,30 @@ pub fn apply_open_door(world: &mut World, entity: Entity, dx: i32, dy: i32) {
     let eid = stable_id(world, entity);
     let (tx, ty) = (pos.x + dx, pos.y + dy);
     let Some(feat) = world.resource::<Grid>().get(tx, ty) else {
-        world.resource_mut::<EventBuf>().push(GameEvent::ActionRejected {
-            entity: eid,
-            reason: "oob".into(),
-        });
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::ActionRejected {
+                entity: eid,
+                reason: "oob".into(),
+            });
         return;
     };
     if !f_info::table().is_closed_door(feat) {
-        world.resource_mut::<EventBuf>().push(GameEvent::ActionRejected {
-            entity: eid,
-            reason: "not_closed_door".into(),
-        });
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::ActionRejected {
+                entity: eid,
+                reason: "not_closed_door".into(),
+            });
         return;
     }
     world.resource_mut::<Grid>().set(tx, ty, id::OPEN_DOOR);
-    world.resource_mut::<EventBuf>().push(GameEvent::DoorOpened {
-        entity: eid,
-        at: (tx, ty),
-    });
+    world
+        .resource_mut::<EventBuf>()
+        .push(GameEvent::DoorOpened {
+            entity: eid,
+            at: (tx, ty),
+        });
 }
 
 pub fn apply_close_door(world: &mut World, entity: Entity, dx: i32, dy: i32) {
@@ -121,17 +137,21 @@ pub fn apply_close_door(world: &mut World, entity: Entity, dx: i32, dy: i32) {
     let eid = stable_id(world, entity);
     let (tx, ty) = (pos.x + dx, pos.y + dy);
     let Some(feat) = world.resource::<Grid>().get(tx, ty) else {
-        world.resource_mut::<EventBuf>().push(GameEvent::ActionRejected {
-            entity: eid,
-            reason: "oob".into(),
-        });
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::ActionRejected {
+                entity: eid,
+                reason: "oob".into(),
+            });
         return;
     };
     if !f_info::table().is_open_door(feat) {
-        world.resource_mut::<EventBuf>().push(GameEvent::ActionRejected {
-            entity: eid,
-            reason: "not_open_door".into(),
-        });
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::ActionRejected {
+                entity: eid,
+                reason: "not_open_door".into(),
+            });
         return;
     }
     // don't close on top of another agent
@@ -144,10 +164,12 @@ pub fn apply_close_door(world: &mut World, entity: Entity, dx: i32, dy: i32) {
         }
     }
     world.resource_mut::<Grid>().set(tx, ty, id::CLOSED_DOOR);
-    world.resource_mut::<EventBuf>().push(GameEvent::DoorClosed {
-        entity: eid,
-        at: (tx, ty),
-    });
+    world
+        .resource_mut::<EventBuf>()
+        .push(GameEvent::DoorClosed {
+            entity: eid,
+            at: (tx, ty),
+        });
 }
 
 /// Use stairs on current cell — regenerates a new level (frog depth change spirit).
@@ -168,14 +190,16 @@ pub fn apply_use_stairs(world: &mut World, entity: Entity, down: bool) {
         feat == id::UP_STAIR || info.map(|f| f.less).unwrap_or(false)
     };
     if !ok {
-        world.resource_mut::<EventBuf>().push(GameEvent::ActionRejected {
-            entity: eid,
-            reason: if down {
-                "not_down_stairs".into()
-            } else {
-                "not_up_stairs".into()
-            },
-        });
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::ActionRejected {
+                entity: eid,
+                reason: if down {
+                    "not_down_stairs".into()
+                } else {
+                    "not_up_stairs".into()
+                },
+            });
         return;
     }
 
@@ -191,16 +215,20 @@ pub fn apply_use_stairs(world: &mut World, entity: Entity, down: bool) {
     };
     let seed = {
         let mut s = world.resource_mut::<WorldSeed>();
-        s.0 = s.0.wrapping_add(0x9E37_79B9_7F4A_7C15).wrapping_add(depth as u64);
+        s.0 =
+            s.0.wrapping_add(0x9E37_79B9_7F4A_7C15)
+                .wrapping_add(depth as u64);
         s.0
     };
 
-    world.resource_mut::<EventBuf>().push(GameEvent::LevelChanged {
-        entity: eid,
-        down,
-        depth,
-        seed,
-    });
+    world
+        .resource_mut::<EventBuf>()
+        .push(GameEvent::LevelChanged {
+            entity: eid,
+            down,
+            depth,
+            seed,
+        });
 
     // Signal tick loop to rebuild (see tick.rs)
     world.insert_resource(PendingLevelChange { seed, depth });

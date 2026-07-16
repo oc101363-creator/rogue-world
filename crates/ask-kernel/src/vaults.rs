@@ -55,7 +55,11 @@ impl MapTemplate {
     }
 
     pub fn width(&self) -> i32 {
-        self.map.iter().map(|r| r.chars().count()).max().unwrap_or(0) as i32
+        self.map
+            .iter()
+            .map(|r| r.chars().count())
+            .max()
+            .unwrap_or(0) as i32
     }
 }
 
@@ -181,7 +185,10 @@ fn parse_l_line(rest: &str) -> Option<(char, LetterRule)> {
             // TRAP(TRAP_OPEN, 25) or TRAP(*)
             let name = inner.split(',').next().unwrap_or("").trim();
             rule.trap = Some(trap_name_to_id(name));
-        } else if d.chars().all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit()) {
+        } else if d
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+        {
             // bare FEAT name e.g. DEEP_WATER, TREE, RUBBLE
             if let Some(fid) = feat_name_to_id(d) {
                 rule.feat = Some(fid);

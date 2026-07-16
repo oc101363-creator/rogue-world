@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum GameEvent {
-    TickStarted { tick: u64 },
+    TickStarted {
+        tick: u64,
+    },
     Moved {
         entity: u64,
         from: (i32, i32),
@@ -82,6 +84,64 @@ pub enum GameEvent {
         item: u64,
         name: String,
         at: (i32, i32),
+    },
+    /// Player melee hit a monster.
+    PlayerAttacked {
+        entity: u64,
+        target: u64,
+        damage: i32,
+        target_hp: i32,
+        name: String,
+        at: (i32, i32),
+    },
+    MonsterKilled {
+        entity: u64,
+        monster: u64,
+        name: String,
+        at: (i32, i32),
+    },
+    ItemDropped {
+        entity: u64,
+        item: u64,
+        name: String,
+        at: (i32, i32),
+    },
+    Rested {
+        entity: u64,
+        healed: i32,
+        hp: i32,
+        max_hp: i32,
+    },
+    Dug {
+        entity: u64,
+        at: (i32, i32),
+        from_feat: u16,
+        to_feat: u16,
+    },
+    Placed {
+        entity: u64,
+        at: (i32, i32),
+        feat: u16,
+    },
+    Scooped {
+        entity: u64,
+        at: (i32, i32),
+        from_feat: u16,
+        to_feat: u16,
+    },
+    Crafted {
+        entity: u64,
+        recipe: String,
+        label: String,
+    },
+    Planted {
+        entity: u64,
+        at: (i32, i32),
+    },
+    Deconstructed {
+        entity: u64,
+        at: (i32, i32),
+        wood: u32,
     },
 }
 

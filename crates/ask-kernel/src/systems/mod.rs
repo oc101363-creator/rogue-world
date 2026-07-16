@@ -1,5 +1,10 @@
 pub mod build;
+pub mod combat;
+pub mod craft;
+pub mod dig;
 pub mod harvest;
+pub mod interact;
+pub mod inventory_act;
 pub mod items;
 pub mod monster;
 pub mod movement;
@@ -12,15 +17,13 @@ use crate::components::StableId;
 use crate::events::{EventBuf, GameEvent};
 use crate::world::TickCounter;
 
-use self::build::apply_build_hut;
-use self::harvest::apply_harvest;
+use self::interact::apply_interact;
+use self::inventory_act::{apply_drop_item, apply_rest};
 use self::movement::apply_move;
-use self::terrain::{apply_close_door, apply_open_door, apply_use_stairs};
 
 pub use self::items::pickup_items_system as pickup_items;
 pub use self::monster::process_monsters_system as process_monsters;
 
-/// Apply all queued actions (sorted by entity index for determinism).
 pub fn apply_actions_system(world: &mut World) {
     let mut items = {
         let mut q = world.resource_mut::<ActionQueue>();
@@ -35,11 +38,15 @@ pub fn apply_actions_system(world: &mut World) {
         }
         match item.action {
             Action::Move { dx, dy } => apply_move(world, item.entity, dx, dy),
-            Action::Harvest => apply_harvest(world, item.entity),
-            Action::BuildHut => apply_build_hut(world, item.entity),
-            Action::OpenDoor { dx, dy } => apply_open_door(world, item.entity, dx, dy),
-            Action::CloseDoor { dx, dy } => apply_close_door(world, item.entity, dx, dy),
-            Action::UseStairs { down } => apply_use_stairs(world, item.entity, down),
+            Action::Interact {
+                dx,
+                dy,
+                verb,
+                slot,
+                recipe,
+            } => apply_interact(world, item.entity, dx, dy, verb, slot, recipe),
+            Action::Drop { index } => apply_drop_item(world, item.entity, index),
+            Action::Rest => apply_rest(world, item.entity),
             Action::Idle => {}
         }
     }

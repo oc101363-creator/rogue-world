@@ -18,11 +18,11 @@ use crate::grid::Grid;
 
 pub use rooms::Room;
 
+use crate::vaults::{self, TemplateRng};
 use alloc::{alloc_monsters, alloc_objects, fill_trap_room};
 use features::{alloc_traps, destroy_level, maybe_maze_level, stamp_maze_vault};
 use rooms::{generate_rooms, DunRooms, RoomKind};
 use tunnel::{build_tunnel, correct_dir, DunTunnel};
-use crate::vaults::{self, TemplateRng};
 
 #[derive(Clone, Debug)]
 pub struct Rng {
@@ -31,9 +31,7 @@ pub struct Rng {
 
 impl Rng {
     pub fn new(seed: u64) -> Self {
-        Self {
-            state: seed.max(1),
-        }
+        Self { state: seed.max(1) }
     }
 
     pub fn next_u64(&mut self) -> u64 {
@@ -142,6 +140,8 @@ pub struct GeneratedLevel {
     pub irons: Vec<(i32, i32)>,
     pub monsters: Vec<vaults::SpawnMon>,
     pub items: Vec<vaults::SpawnObj>,
+    /// Frog CAVE_GLOW — room interiors are permanently lit.
+    pub glow: Vec<bool>,
 }
 
 pub fn generate_level(cfg: &Config) -> GeneratedLevel {
@@ -243,15 +243,7 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
     // trap rooms (build_type14): denser traps inside trap-kind rooms
     for r in &rooms {
         if r.kind == RoomKind::Trap {
-            fill_trap_room(
-                &mut feats,
-                w,
-                r.x1,
-                r.y1,
-                r.x2,
-                r.y2,
-                &mut rng,
-            );
+            fill_trap_room(&mut feats, w, r.x1, r.y1, r.x2, r.y2, &mut rng);
         }
     }
 
@@ -268,6 +260,39 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
     for y in 0..h {
         feats[(y * w) as usize] = id::PERMANENT;
         feats[(y * w + w - 1) as usize] = id::PERMANENT;
+    }
+
+    // Frog room light: floor cells that were Room get CAVE_GLOW
+    let mut glow = vec![false; (w * h) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            if matches!(cave.get(x, y), Cell::Room) {
+                glow[(y * w + x) as usize] = true;
+            }
+        }
+    }
+    // also light adjacent walls of rooms a bit (so walls of lit rooms are visible)
+    for y in 1..h - 1 {
+        for x in 1..w - 1 {
+            let i = (y * w + x) as usize;
+            if glow[i] {
+                continue;
+            }
+            let mut adj = false;
+            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                if glow[((y + dy) * w + (x + dx)) as usize] {
+                    adj = true;
+                    break;
+                }
+            }
+            if adj {
+                // only non-LOS walls / doors get wall-glow helper; floors already glow
+                let id = feats[i];
+                if !crate::f_info::table().allows_los(id) {
+                    glow[i] = true;
+                }
+            }
+        }
     }
 
     let grid = Grid {
@@ -291,6 +316,7 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
         irons,
         monsters,
         items,
+        glow,
     }
 }
 
@@ -737,11 +763,7 @@ fn place_tree_patches(feats: &mut [u16], w: i32, h: i32, rng: &mut Rng) {
                 if matches!(feats[i], id::FLOOR | id::DIRT | id::GRASS | id::BRAKE)
                     && rng.percent(70)
                 {
-                    feats[i] = if rng.percent(80) {
-                        id::TREE
-                    } else {
-                        id::BRAKE
-                    };
+                    feats[i] = if rng.percent(80) { id::TREE } else { id::BRAKE };
                 }
             }
         }
@@ -808,10 +830,7 @@ fn try_stamp(
                 (r.cy - vh / 2).clamp(2, h - vh - 2),
             )
         } else {
-            (
-                rng.rand_range(2, w - vw - 2),
-                rng.rand_range(2, h - vh - 2),
-            )
+            (rng.rand_range(2, w - vw - 2), rng.rand_range(2, h - vh - 2))
         };
         if vaults::stamp_template(feats, w, h, ox, oy, v, rng, mons, objs) {
             return;

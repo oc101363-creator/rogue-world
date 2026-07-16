@@ -11,10 +11,7 @@ use crate::world::WorldSeed;
 
 /// Process all monsters once per tick (after agent actions).
 pub fn process_monsters_system(world: &mut World) {
-    let seed = world
-        .get_resource::<WorldSeed>()
-        .map(|s| s.0)
-        .unwrap_or(1);
+    let seed = world.get_resource::<WorldSeed>().map(|s| s.0).unwrap_or(1);
     let tick = world
         .get_resource::<crate::world::TickCounter>()
         .map(|t| t.0)
@@ -71,13 +68,15 @@ pub fn process_monsters_system(world: &mut World) {
                     let thp = world.get::<Health>(agent_e).map(|h| h.hp).unwrap_or(0);
                     let mid = stable_id(world, mon_e);
                     let aid = stable_id(world, agent_e);
-                    world.resource_mut::<EventBuf>().push(GameEvent::MonsterAttacked {
-                        monster: mid,
-                        target: aid,
-                        damage,
-                        target_hp: thp,
-                        name,
-                    });
+                    world
+                        .resource_mut::<EventBuf>()
+                        .push(GameEvent::MonsterAttacked {
+                            monster: mid,
+                            target: aid,
+                            damage,
+                            target_hp: thp,
+                            name,
+                        });
                     continue;
                 }
             } else if dist == 0 {
@@ -88,13 +87,15 @@ pub fn process_monsters_system(world: &mut World) {
                 let thp = world.get::<Health>(agent_e).map(|h| h.hp).unwrap_or(0);
                 let mid = stable_id(world, mon_e);
                 let aid = stable_id(world, agent_e);
-                world.resource_mut::<EventBuf>().push(GameEvent::MonsterAttacked {
-                    monster: mid,
-                    target: aid,
-                    damage,
-                    target_hp: thp,
-                    name,
-                });
+                world
+                    .resource_mut::<EventBuf>()
+                    .push(GameEvent::MonsterAttacked {
+                        monster: mid,
+                        target: aid,
+                        damage,
+                        target_hp: thp,
+                        name,
+                    });
                 continue;
             }
         }
@@ -128,12 +129,7 @@ pub fn process_monsters_system(world: &mut World) {
         if !world.resource::<Grid>().walkable(nx, ny) {
             continue;
         }
-        if f_info::table().is_closed_door(
-            world
-                .resource::<Grid>()
-                .get(nx, ny)
-                .unwrap_or(0),
-        ) {
+        if f_info::table().is_closed_door(world.resource::<Grid>().get(nx, ny).unwrap_or(0)) {
             continue;
         }
         // occupied by another monster?
@@ -153,13 +149,15 @@ pub fn process_monsters_system(world: &mut World) {
             let thp = world.get::<Health>(agent_e).map(|h| h.hp).unwrap_or(0);
             let mid = stable_id(world, mon_e);
             let aid = stable_id(world, agent_e);
-            world.resource_mut::<EventBuf>().push(GameEvent::MonsterAttacked {
-                monster: mid,
-                target: aid,
-                damage,
-                target_hp: thp,
-                name,
-            });
+            world
+                .resource_mut::<EventBuf>()
+                .push(GameEvent::MonsterAttacked {
+                    monster: mid,
+                    target: aid,
+                    damage,
+                    target_hp: thp,
+                    name,
+                });
             continue;
         }
 
@@ -168,11 +166,13 @@ pub fn process_monsters_system(world: &mut World) {
             p.x = nx;
             p.y = ny;
         }
-        world.resource_mut::<EventBuf>().push(GameEvent::MonsterMoved {
-            entity: mid,
-            from: (pos.x, pos.y),
-            to: (nx, ny),
-        });
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::MonsterMoved {
+                entity: mid,
+                from: (pos.x, pos.y),
+                to: (nx, ny),
+            });
     }
 }
 

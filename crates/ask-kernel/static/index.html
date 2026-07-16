@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ASK</title>
+    <title>ASK // ROGUE-80</title>
     <link rel="stylesheet" href="/static/app.css" />
     <script src="https://cdn.jsdelivr.net/npm/rot-js@2.2.1/dist/rot.js"></script>
   </head>
@@ -11,19 +11,65 @@
     <div id="viewport">
       <div id="map"></div>
     </div>
+
     <div id="hud">
       <span id="status">…</span>
+      <span id="mode" class="mode-mock">MOCK</span>
       <span id="info"></span>
       <span id="cam"></span>
     </div>
+
+    <aside id="tracker" aria-label="Agent tracker">
+      <div class="title">+-- AGENT TRACK --+</div>
+      <div class="muted">paste token to spectate</div>
+      <div class="row">
+        <input
+          id="token-input"
+          class="term-input"
+          type="text"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="ask1_…"
+          aria-label="Agent token"
+        />
+        <button type="button" id="token-add" class="term-btn" title="Add tracker">
+          [+]
+        </button>
+        <button type="button" id="token-clear" class="term-btn secondary" title="Clear all tracked tokens">
+          [ CLEAR ]
+        </button>
+      </div>
+      <div id="tracker-list"></div>
+      <div class="muted" id="tracker-hint">0 tracked (saved locally)</div>
+    </aside>
+
     <div id="theme-bar">
-      <label for="theme">主题</label>
+      <div class="title">+ SYS +</div>
+      <label for="theme">MAP THEME</label>
       <select id="theme" aria-label="Map color theme"></select>
+      <button type="button" id="btn-follow" class="term-btn" title="Follow focused agent">
+        [ FOLLOW ]
+      </button>
+      <button type="button" id="btn-mock" class="term-btn secondary" title="Toggle mock">
+        [ MOCK ]
+      </button>
     </div>
+
+    <div id="log" aria-live="polite"></div>
+
     <div id="help">
-      滚轮缩放 · 拖拽平移 · 空格跟随Agent · R重置 · +/-缩放 · 右上角切换主题
+      KEYS: arrows move · g interact · t dig · u scoop · v place · n plant · b build · x decon · y craft · m mock · SPACE follow · click inspect · right-click cell
     </div>
-    <script src="/static/themes.js"></script>
-    <script src="/static/app.js"></script>
+
+    <div id="inspect-popup" class="term-panel">
+      <div class="title">
+        <span id="inspect-title">INSPECT</span>
+        <button type="button" id="inspect-close" class="rm" title="Close">[x]</button>
+      </div>
+      <div id="inspect-body"></div>
+    </div>
+
+    <script src="/static/themes.js?v=inspect"></script>
+    <script src="/static/app.js?v=inspect"></script>
   </body>
 </html>

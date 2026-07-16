@@ -140,12 +140,19 @@ fn harvest_increments_wood() {
         p.x = tree_pos.0;
         p.y = tree_pos.1;
     }
-    kw.world
-        .resource_mut::<ActionQueue>()
-        .push(agent, Action::Harvest);
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("harvest".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
     apply_actions_system(&mut kw.world);
     let inv = kw.world.get::<Inventory>(agent).unwrap();
-    assert_eq!(inv.wood, 1);
+    assert_eq!(inv.wood(), 1);
 }
 
 #[test]
@@ -155,7 +162,12 @@ fn build_hut_costs_wood() {
     let mut kw = KernelWorld::new(&cfg);
     let agent = kw.agent_entity().unwrap();
     if let Some(mut inv) = kw.world.get_mut::<Inventory>(agent) {
-        inv.wood = 3;
+        inv.add(
+            ask_kernel::components::Matter::Resource {
+                resource: ResourceKind::Wood,
+            },
+            3,
+        );
     }
     // place on a buildable floor (not water/lava/door)
     let floor = {
@@ -173,12 +185,19 @@ fn build_hut_costs_wood() {
         p.x = floor.0;
         p.y = floor.1;
     }
-    kw.world
-        .resource_mut::<ActionQueue>()
-        .push(agent, Action::BuildHut);
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("build".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
     apply_actions_system(&mut kw.world);
     let inv = kw.world.get::<Inventory>(agent).unwrap();
-    assert_eq!(inv.wood, 0);
+    assert_eq!(inv.wood(), 0);
     let huts = {
         let mut q = kw.world.query::<&ask_kernel::components::Building>();
         q.iter(&kw.world).count()
@@ -197,10 +216,7 @@ fn mock_sim_gathers_wood_over_steps() {
     let mut sim = Sim::new(KernelWorld::new(&cfg));
     let agent = sim.kernel.agent_entity().unwrap();
     let tree_pos = {
-        let mut q = sim
-            .kernel
-            .world
-            .query::<(&Position, &Resource)>();
+        let mut q = sim.kernel.world.query::<(&Position, &Resource)>();
         q.iter(&sim.kernel.world)
             .find(|(_, r)| r.kind == ResourceKind::Wood)
             .map(|(p, _)| (p.x, p.y))
@@ -215,7 +231,7 @@ fn mock_sim_gathers_wood_over_steps() {
         .kernel
         .world
         .get::<Inventory>(agent)
-        .map(|i| i.wood)
+        .map(|i| i.wood())
         .unwrap_or(0);
     assert!(wood >= 1, "expected harvest on tree, wood={wood}");
 }
@@ -265,7 +281,8 @@ fn trap_damages_and_clears() {
     );
     let ev = kw.world.resource::<EventBuf>().events.clone();
     assert!(
-        ev.iter().any(|e| matches!(e, GameEvent::TrapTriggered { .. })),
+        ev.iter()
+            .any(|e| matches!(e, GameEvent::TrapTriggered { .. })),
         "expected TrapTriggered"
     );
 }
@@ -295,7 +312,13 @@ fn open_door_changes_feat() {
         .set(fx + 1, fy, id::CLOSED_DOOR);
     kw.world.resource_mut::<ActionQueue>().push(
         agent,
-        Action::OpenDoor { dx: 1, dy: 0 },
+        Action::Interact {
+            dx: 1,
+            dy: 0,
+            verb: Some("open".into()),
+            slot: None,
+            recipe: None,
+        },
     );
     apply_actions_system(&mut kw.world);
     assert_eq!(
@@ -353,9 +376,11 @@ fn item_pickup_on_same_cell() {
         Position { x, y },
         Glyph('!'),
         Item {
-            kind_id: 1,
-            name: "test potion".into(),
-            color: 'b',
+            matter: ask_kernel::components::Matter::Object {
+                kind_id: 1,
+                name: "test potion".into(),
+            },
+            qty: 1,
         },
         StableId(9999),
     ));
@@ -366,9 +391,11 @@ fn item_pickup_on_same_cell() {
     ask_kernel::systems::pickup_items(&mut kw.world);
     let inv = kw.world.get::<Inventory>(agent).unwrap();
     assert!(
-        inv.items.iter().any(|s| s.contains("potion")),
-        "items={:?}",
-        inv.items
+        inv.slots
+            .iter()
+            .any(|s| s.matter.label().contains("potion")),
+        "slots={:?}",
+        inv.slots
     );
     let left = {
         let mut q = kw.world.query::<&Item>();
@@ -376,4 +403,397 @@ fn item_pickup_on_same_cell() {
     };
     // may have world-generated items; at least one fewer after pickup
     assert!(left < before, "before={before} left={left}");
+}
+
+#[test]
+fn player_bus_overrides_mock_and_moves() {
+    use ask_kernel::components::StableId;
+    use ask_kernel::player::{BusPolicy, PlayerActionBus};
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 17;
+    let kw = KernelWorld::new(&cfg);
+    let bus = PlayerActionBus::new();
+    let mut sim = Sim::with_policy(kw, Box::new(BusPolicy::new(bus.clone(), true)));
+
+    let agent = sim.kernel.agent_entity().unwrap();
+    let sid = sim.kernel.world.get::<StableId>(agent).unwrap().0;
+
+    // Place agent on a floor that has at least one walkable neighbor
+    let (origin, step) = {
+        let g = sim.kernel.world.resource::<Grid>();
+        let mut found = None;
+        'outer: for y in 1..g.height - 1 {
+            for x in 1..g.width - 1 {
+                if !g.walkable(x, y) {
+                    continue;
+                }
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    if g.walkable(x + dx, y + dy) {
+                        found = Some(((x, y), (dx, dy)));
+                        break 'outer;
+                    }
+                }
+            }
+        }
+        found.expect("floor with walkable neighbor")
+    };
+    if let Some(mut p) = sim.kernel.world.get_mut::<Position>(agent) {
+        p.x = origin.0;
+        p.y = origin.1;
+    }
+
+    bus.submit(
+        Some(sid),
+        Action::Move {
+            dx: step.0,
+            dy: step.1,
+        },
+        Some(0),
+    );
+    assert!(bus.human_control());
+    sim.step();
+
+    let after = {
+        let p = sim.kernel.world.get::<Position>(agent).unwrap();
+        (p.x, p.y)
+    };
+    assert_eq!(after, (origin.0 + step.0, origin.1 + step.1));
+
+    // Next tick with no input should Idle (not mock-run away)
+    let mid = after;
+    sim.step();
+    let still = {
+        let p = sim.kernel.world.get::<Position>(agent).unwrap();
+        (p.x, p.y)
+    };
+    assert_eq!(still, mid, "human_control idles without input");
+}
+
+#[test]
+fn dig_puts_terrain_in_pack_and_place_restores() {
+    use ask_kernel::actions::{Action, ActionQueue};
+    use ask_kernel::components::{Inventory, Matter};
+    use ask_kernel::f_info::id;
+    use ask_kernel::grid::Grid;
+    use ask_kernel::systems::apply_actions_system;
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 9;
+    let mut kw = KernelWorld::new(&cfg);
+    let agent = kw.agent_entity().unwrap();
+
+    // Find diggable wall next to a floor
+    let ((ox, oy), (dx, dy), feat) = {
+        let g = kw.world.resource::<Grid>();
+        let mut found = None;
+        'outer: for y in 1..g.height - 1 {
+            for x in 1..g.width - 1 {
+                if !g.walkable(x, y) {
+                    continue;
+                }
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let feat = g.get(x + dx, y + dy).unwrap_or(0);
+                    if ask_kernel::systems::dig::is_diggable(feat) {
+                        found = Some(((x, y), (dx, dy), feat));
+                        break 'outer;
+                    }
+                }
+            }
+        }
+        found.expect("floor next to diggable")
+    };
+    if let Some(mut p) = kw.world.get_mut::<Position>(agent) {
+        p.x = ox;
+        p.y = oy;
+    }
+
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx,
+            dy,
+            verb: Some("dig".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+
+    let next = kw.world.resource::<Grid>().get(ox + dx, oy + dy).unwrap();
+    assert_ne!(next, feat, "cell should change after dig");
+    let inv = kw.world.get::<Inventory>(agent).unwrap();
+    assert!(
+        inv.slots
+            .iter()
+            .any(|s| matches!(&s.matter, Matter::Terrain { feat: f } if *f == feat)),
+        "pack should contain dug terrain {feat}, slots={:?}",
+        inv.slots
+    );
+
+    // place back onto the cell we just dug (now rubble/floor)
+    let pack_before = kw
+        .world
+        .get::<Inventory>(agent)
+        .map(|i| {
+            i.slots
+                .iter()
+                .filter(|s| matches!(&s.matter, Matter::Terrain { feat: f } if *f == feat))
+                .map(|s| s.qty)
+                .sum::<u32>()
+        })
+        .unwrap_or(0);
+
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx,
+            dy,
+            verb: Some("place".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    let after = kw.world.resource::<Grid>().get(ox + dx, oy + dy);
+    assert_eq!(after, Some(feat), "placed feat should match pack terrain");
+    let pack_after = kw
+        .world
+        .get::<Inventory>(agent)
+        .map(|i| {
+            i.slots
+                .iter()
+                .filter(|s| matches!(&s.matter, Matter::Terrain { feat: f } if *f == feat))
+                .map(|s| s.qty)
+                .sum::<u32>()
+        })
+        .unwrap_or(0);
+    assert_eq!(pack_after, pack_before - 1, "place consumes one terrain");
+}
+
+#[test]
+fn scoop_floor_and_craft_door() {
+    use ask_kernel::actions::{Action, ActionQueue};
+    use ask_kernel::components::{Inventory, Matter, ResourceKind};
+    use ask_kernel::f_info::id;
+    use ask_kernel::grid::Grid;
+    use ask_kernel::systems::apply_actions_system;
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 21;
+    let mut kw = KernelWorld::new(&cfg);
+    let agent = kw.agent_entity().unwrap();
+
+    let floor = {
+        let g = kw.world.resource::<Grid>();
+        (1..g.width - 1)
+            .flat_map(|x| (1..g.height - 1).map(move |y| (x, y)))
+            .find(|&(x, y)| g.get(x, y) == Some(id::FLOOR))
+            .expect("floor")
+    };
+    if let Some(mut p) = kw.world.get_mut::<Position>(agent) {
+        p.x = floor.0;
+        p.y = floor.1;
+    }
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("scoop".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    assert_ne!(
+        kw.world.resource::<Grid>().get(floor.0, floor.1),
+        Some(id::FLOOR)
+    );
+    let inv = kw.world.get::<Inventory>(agent).unwrap();
+    assert!(
+        inv.slots
+            .iter()
+            .any(|s| matches!(s.matter, Matter::Terrain { feat: id::FLOOR })),
+        "scooped floor into pack: {:?}",
+        inv.slots
+    );
+
+    if let Some(mut inv) = kw.world.get_mut::<Inventory>(agent) {
+        inv.add(
+            Matter::Resource {
+                resource: ResourceKind::Wood,
+            },
+            2,
+        );
+    }
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("craft".into()),
+            slot: None,
+            recipe: Some("plank_door".into()),
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    let inv = kw.world.get::<Inventory>(agent).unwrap();
+    assert!(
+        inv.slots.iter().any(|s| matches!(
+            s.matter,
+            Matter::Terrain {
+                feat: id::CLOSED_DOOR
+            }
+        )),
+        "crafted door: {:?}",
+        inv.slots
+    );
+}
+
+#[test]
+fn plant_build_deconstruct() {
+    use ask_kernel::actions::{Action, ActionQueue};
+    use ask_kernel::components::{Building, Inventory, Matter, ResourceKind};
+    use ask_kernel::f_info::id;
+    use ask_kernel::grid::Grid;
+    use ask_kernel::systems::apply_actions_system;
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 33;
+    cfg.hut_wood_cost = 2;
+    let mut kw = KernelWorld::new(&cfg);
+    let agent = kw.agent_entity().unwrap();
+    let floor = {
+        let g = kw.world.resource::<Grid>();
+        (1..g.width - 1)
+            .flat_map(|x| (1..g.height - 1).map(move |y| (x, y)))
+            .find(|&(x, y)| g.buildable(x, y))
+            .expect("buildable")
+    };
+    if let Some(mut p) = kw.world.get_mut::<Position>(agent) {
+        p.x = floor.0;
+        p.y = floor.1;
+    }
+    if let Some(mut inv) = kw.world.get_mut::<Inventory>(agent) {
+        inv.add(
+            Matter::Resource {
+                resource: ResourceKind::Wood,
+            },
+            5,
+        );
+    }
+
+    // ensure plantable surface
+    kw.world
+        .resource_mut::<Grid>()
+        .set(floor.0, floor.1, id::DIRT);
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("plant".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    assert_eq!(
+        kw.world.resource::<Grid>().get(floor.0, floor.1),
+        Some(id::TREE)
+    );
+
+    // build hut on another cell
+    let floor2 = {
+        let g = kw.world.resource::<Grid>();
+        (1..g.width - 1)
+            .flat_map(|x| (1..g.height - 1).map(move |y| (x, y)))
+            .find(|&(x, y)| g.buildable(x, y) && (x, y) != floor)
+            .expect("buildable2")
+    };
+    if let Some(mut p) = kw.world.get_mut::<Position>(agent) {
+        p.x = floor2.0;
+        p.y = floor2.1;
+    }
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("build".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    let huts = {
+        let mut q = kw.world.query::<&Building>();
+        q.iter(&kw.world).count()
+    };
+    assert_eq!(huts, 1);
+    let wood_before = kw
+        .world
+        .get::<Inventory>(agent)
+        .map(|i| i.wood())
+        .unwrap_or(0);
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("deconstruct".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    let huts = {
+        let mut q = kw.world.query::<&Building>();
+        q.iter(&kw.world).count()
+    };
+    assert_eq!(huts, 0);
+    let wood_after = kw
+        .world
+        .get::<Inventory>(agent)
+        .map(|i| i.wood())
+        .unwrap_or(0);
+    assert!(
+        wood_after >= wood_before + 2,
+        "wood refunded {wood_before}->{wood_after}"
+    );
+}
+
+#[test]
+fn vision_marks_agent_cell_and_blocks_walls() {
+    use ask_kernel::vision::{self, VisionMap, F_MARK, F_VIEW};
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 3;
+    let mut kw = KernelWorld::new(&cfg);
+    let agent = kw.agent_entity().unwrap();
+    let (ax, ay) = {
+        let p = kw.world.get::<Position>(agent).unwrap();
+        (p.x, p.y)
+    };
+    vision::update_view(&mut kw.world);
+    let vis = kw.world.resource::<VisionMap>();
+    assert!(vis.is_view(ax, ay), "agent cell must be VIEW");
+    assert!(vis.is_visible(ax, ay), "agent cell torch-lit");
+    assert!(vis.get(ax, ay) & F_MARK != 0, "agent cell memorized");
+    assert!(vis.get(ax, ay) & F_VIEW != 0);
+
+    // Far corner should be unknown (not marked, not view) on a mid-size map
+    let far_ok = !vis.is_view(1, 1) || (ax - 1).abs() + (ay - 1).abs() <= vision::MAX_SIGHT;
+    assert!(far_ok || !vis.is_visible(1, 1));
 }

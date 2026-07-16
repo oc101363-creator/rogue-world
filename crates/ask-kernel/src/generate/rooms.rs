@@ -71,12 +71,54 @@ pub fn generate_rooms(cave: &mut Cave, rng: &mut Rng) -> DunRooms {
 
     let mut rooms = Vec::new();
     // frog room_build_order: rarer / larger first
-    build_many(cave, &mut room_map, &mut rooms, rng, want_vault, RoomKind::Vault);
-    build_many(cave, &mut room_map, &mut rooms, rng, want_crypt, RoomKind::Crypt);
-    build_many(cave, &mut room_map, &mut rooms, rng, want_trap, RoomKind::Trap);
-    build_many(cave, &mut room_map, &mut rooms, rng, want_cavern, RoomKind::Cavern);
-    build_many(cave, &mut room_map, &mut rooms, rng, want_overlap, RoomKind::Overlap);
-    build_many(cave, &mut room_map, &mut rooms, rng, want_normal, RoomKind::Normal);
+    build_many(
+        cave,
+        &mut room_map,
+        &mut rooms,
+        rng,
+        want_vault,
+        RoomKind::Vault,
+    );
+    build_many(
+        cave,
+        &mut room_map,
+        &mut rooms,
+        rng,
+        want_crypt,
+        RoomKind::Crypt,
+    );
+    build_many(
+        cave,
+        &mut room_map,
+        &mut rooms,
+        rng,
+        want_trap,
+        RoomKind::Trap,
+    );
+    build_many(
+        cave,
+        &mut room_map,
+        &mut rooms,
+        rng,
+        want_cavern,
+        RoomKind::Cavern,
+    );
+    build_many(
+        cave,
+        &mut room_map,
+        &mut rooms,
+        rng,
+        want_overlap,
+        RoomKind::Overlap,
+    );
+    build_many(
+        cave,
+        &mut room_map,
+        &mut rooms,
+        rng,
+        want_normal,
+        RoomKind::Normal,
+    );
 
     if rooms.is_empty() {
         if let Some(r) = build_type1(cave, &mut room_map, rng) {
@@ -116,13 +158,7 @@ fn build_many(
     }
 }
 
-fn reserve_blocks(
-    room_map: &mut [Vec<bool>],
-    by: i32,
-    bx: i32,
-    bh: i32,
-    bw: i32,
-) -> bool {
+fn reserve_blocks(room_map: &mut [Vec<bool>], by: i32, bx: i32, bh: i32, bw: i32) -> bool {
     let row_rooms = room_map.len() as i32;
     let col_rooms = room_map[0].len() as i32;
     for y in by..by + bh {
@@ -299,9 +335,21 @@ fn build_type2(cave: &mut Cave, room_map: &mut [Vec<bool>], rng: &mut Rng) -> Op
     }
 
     // draw rect A
-    fill_rect_room(cave, x1a.max(2), y1a.max(2), x2a.min(cave.w - 3), y2a.min(cave.h - 3));
+    fill_rect_room(
+        cave,
+        x1a.max(2),
+        y1a.max(2),
+        x2a.min(cave.w - 3),
+        y2a.min(cave.h - 3),
+    );
     // draw rect B
-    fill_rect_room(cave, x1b.max(2), y1b.max(2), x2b.min(cave.w - 3), y2b.min(cave.h - 3));
+    fill_rect_room(
+        cave,
+        x1b.max(2),
+        y1b.max(2),
+        x2b.min(cave.w - 3),
+        y2b.min(cave.h - 3),
+    );
 
     Some(Room {
         x1,

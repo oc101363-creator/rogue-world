@@ -10,12 +10,7 @@ use crate::vaults::{SpawnMon, SpawnObj};
 use crate::world::Depth;
 
 /// Frog: usually ~14 base + depth noise, scaled for small levels.
-pub fn alloc_monsters(
-    grid: &Grid,
-    depth: u32,
-    rng: &mut Rng,
-    out: &mut Vec<SpawnMon>,
-) {
+pub fn alloc_monsters(grid: &Grid, depth: u32, rng: &mut Rng, out: &mut Vec<SpawnMon>) {
     let table = r_info::table();
     if table.count() == 0 {
         return;
@@ -59,12 +54,7 @@ pub fn alloc_monsters(
 }
 
 /// Frog alloc_object spirit: room + corridor items/gold/food.
-pub fn alloc_objects(
-    grid: &Grid,
-    depth: u32,
-    rng: &mut Rng,
-    out: &mut Vec<SpawnObj>,
-) {
+pub fn alloc_objects(grid: &Grid, depth: u32, rng: &mut Rng, out: &mut Vec<SpawnObj>) {
     let table = k_info::table();
     if table.count() == 0 {
         return;
@@ -135,7 +125,15 @@ fn shuffle(v: &mut [(i32, i32)], rng: &mut Rng) {
 }
 
 /// Stamp many traps into a rectangular room interior (build_type14 spirit).
-pub fn fill_trap_room(feats: &mut [u16], w: i32, x1: i32, y1: i32, x2: i32, y2: i32, rng: &mut Rng) {
+pub fn fill_trap_room(
+    feats: &mut [u16],
+    w: i32,
+    x1: i32,
+    y1: i32,
+    x2: i32,
+    y2: i32,
+    rng: &mut Rng,
+) {
     let traps = id::TRAP_FEATS;
     for y in (y1 + 1)..y2 {
         for x in (x1 + 1)..x2 {

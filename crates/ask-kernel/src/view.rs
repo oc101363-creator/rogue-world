@@ -13,11 +13,7 @@ pub fn render(world: &mut World) -> String {
     let h = grid.height as usize;
 
     let mut chars: Vec<Vec<char>> = (0..h)
-        .map(|y| {
-            (0..w)
-                .map(|x| grid.glyph(x as i32, y as i32))
-                .collect()
-        })
+        .map(|y| (0..w).map(|x| grid.glyph(x as i32, y as i32)).collect())
         .collect();
 
     let mut non_agents = Vec::new();
@@ -41,10 +37,15 @@ pub fn render(world: &mut World) -> String {
         }
     }
 
-    let mut inv_s = String::from("wood=? iron=?");
+    let mut inv_s = String::from("pack=?");
     let mut q2 = world.query_filtered::<&Inventory, With<Agent>>();
     if let Some(inv) = q2.iter(world).next() {
-        inv_s = format!("wood={} iron={}", inv.wood, inv.iron);
+        inv_s = format!(
+            "wood={} iron={} slots={}",
+            inv.wood(),
+            inv.iron(),
+            inv.slots.len()
+        );
     }
 
     let mut out = format!("t={tick} {inv_s}\n");

@@ -1,6 +1,6 @@
 use bevy_ecs::prelude::*;
 
-use crate::components::{Inventory, Position, Resource, ResourceKind};
+use crate::components::{Inventory, Matter, Position, Resource, ResourceKind};
 use crate::events::{EventBuf, GameEvent};
 use crate::systems::stable_id;
 
@@ -10,7 +10,6 @@ pub fn apply_harvest(world: &mut World, agent: Entity) {
     };
     let agent_id = stable_id(world, agent);
 
-    // Find resource on same cell
     let mut target: Option<(Entity, ResourceKind, u32)> = None;
     {
         let mut q = world.query::<(Entity, &Position, &Resource)>();
@@ -22,15 +21,16 @@ pub fn apply_harvest(world: &mut World, agent: Entity) {
         }
     }
 
-    let Some((res_e, kind, amount)) = target else {
-        world.resource_mut::<EventBuf>().push(GameEvent::ActionRejected {
-            entity: agent_id,
-            reason: "no_resource_here".into(),
-        });
+    let Some((res_e, kind, _amount)) = target else {
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::ActionRejected {
+                entity: agent_id,
+                reason: "no_resource_here".into(),
+            });
         return;
     };
 
-    // Decrement resource
     let depleted;
     {
         let mut r = world.get_mut::<Resource>(res_e).unwrap();
@@ -38,15 +38,13 @@ pub fn apply_harvest(world: &mut World, agent: Entity) {
         depleted = r.amount == 0;
     }
 
-    // Add to inventory
-    let (wood, iron) = {
-        let mut inv = world.get_mut::<Inventory>(agent).unwrap();
-        match kind {
-            ResourceKind::Wood => inv.wood += 1,
-            ResourceKind::Iron => inv.iron += 1,
-        }
-        (inv.wood, inv.iron)
-    };
+    if let Some(mut inv) = world.get_mut::<Inventory>(agent) {
+        inv.add(Matter::Resource { resource: kind }, 1);
+    }
+    let (wood, iron) = world
+        .get::<Inventory>(agent)
+        .map(|i| (i.wood(), i.iron()))
+        .unwrap_or((0, 0));
 
     let kind_s = match kind {
         ResourceKind::Wood => "wood",
@@ -66,6 +64,5 @@ pub fn apply_harvest(world: &mut World, agent: Entity) {
         world
             .resource_mut::<EventBuf>()
             .push(GameEvent::ResourceDepleted { entity: rid });
-        let _ = amount; // silence
     }
 }

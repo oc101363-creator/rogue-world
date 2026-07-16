@@ -20,6 +20,55 @@
 /** @type {Theme[]} */
 const THEMES = [
   {
+    // Rogue-80 Terminal System — chrome + map
+    id: "rogue-80",
+    name: "Rogue-80",
+    ui: {
+      bg: "#000000",
+      hud: "#ffffff",
+      hudMuted: "#00ff00",
+      online: "#00ff00",
+      offline: "#ff0000",
+    },
+    void: "#000000",
+    letters: {
+      D: "#000000",
+      d: "#1e1e1e",
+      s: "#808080",
+      w: "#ffffff",
+      W: "#ffffff",
+      b: "#00ffff",
+      B: "#00ffff",
+      g: "#00ff00",
+      G: "#00ff00",
+      r: "#ff0000",
+      R: "#ff0000",
+      o: "#ffff00",
+      y: "#ffff00",
+      u: "#ffff00",
+      U: "#ffffff",
+      v: "#00ffff",
+      L: "#00ff00",
+      l: "#00ffff",
+    },
+    cellBg(letter, ch) {
+      if (ch === "~") return "#001010";
+      if (ch === "#") return "#0a0a0a";
+      if (letter === "g" || letter === "L" || letter === "G") return "#001000";
+      if (letter === "r" || letter === "R") return "#100000";
+      return "#000000";
+    },
+    entities: {
+      agent: "#ffff00",
+      tree: "#00ff00",
+      iron: "#00ffff",
+      hut: "#ffff00",
+      monster: "#ff0000",
+      item: "#00ffff",
+      entityBg: "#000000",
+    },
+  },
+  {
     // Caves of Qud — Viridian terminal palette
     id: "qud-viridian",
     name: "Qud Viridian",

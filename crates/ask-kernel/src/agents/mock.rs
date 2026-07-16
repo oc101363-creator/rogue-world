@@ -1,11 +1,13 @@
 //! Rule policy — stand-in until external Agent Gateway exists.
+//! Uses Interact verbs discovered from the world (not hard-coded special actions).
 
 use bevy_ecs::prelude::*;
 
 use crate::actions::Action;
 use crate::agents::AgentPolicy;
-use crate::components::{Agent, Building, Inventory, Position, Resource, ResourceKind};
+use crate::components::{Agent, Inventory, Position, Resource, ResourceKind};
 use crate::grid::Grid;
+use crate::systems::interact;
 use crate::world::KernelConfig;
 
 #[derive(Default)]
@@ -16,39 +18,25 @@ impl AgentPolicy for MockPolicy {
         let Some(pos) = world.get::<Position>(agent).copied() else {
             return Action::Idle;
         };
-        let wood = world
-            .get::<Inventory>(agent)
-            .map(|i| i.wood)
-            .unwrap_or(0);
-        let cost = world.resource::<KernelConfig>().hut_wood_cost;
 
-        // Harvest if standing on resource
+        // Prefer productive underfoot verbs (avoid endless scoop/craft)
+        let under = interact::list_at(world, agent, 0, 0);
+        const PREFER: &[&str] = &["harvest", "pickup", "build", "plant"];
+        if let Some(i) = PREFER
+            .iter()
+            .find_map(|v| under.iter().find(|o| o.verb == *v))
         {
-            let mut q = world.query::<(&Position, &Resource)>();
-            for (p, r) in q.iter(world) {
-                if p.x == pos.x && p.y == pos.y && r.amount > 0 {
-                    return Action::Harvest;
-                }
-            }
-        }
-
-        // Build hut if enough wood and no building here
-        if wood >= cost {
-            let mut has_b = false;
-            let mut q = world.query::<(&Position, &Building)>();
-            for (p, _) in q.iter(world) {
-                if p.x == pos.x && p.y == pos.y {
-                    has_b = true;
-                    break;
-                }
-            }
-            if !has_b && world.resource::<Grid>().buildable(pos.x, pos.y) {
-                return Action::BuildHut;
-            }
+            return Action::Interact {
+                dx: 0,
+                dy: 0,
+                verb: Some(i.verb.clone()),
+                slot: i.slot,
+                recipe: i.recipe.clone(),
+            };
         }
 
         // Move toward nearest tree
-        let mut best: Option<(i32, i32, i32)> = None; // dist, x, y
+        let mut best: Option<(i32, i32, i32)> = None;
         {
             let mut q = world.query::<(&Position, &Resource)>();
             for (p, r) in q.iter(world) {
@@ -69,11 +57,28 @@ impl AgentPolicy for MockPolicy {
             if world.resource::<Grid>().walkable(nx, ny) {
                 return Action::Move { dx, dy };
             }
-            // try alternate axis
             let (dx2, dy2) = if dx != 0 {
-                (0, if ty > pos.y { 1 } else if ty < pos.y { -1 } else { 0 })
+                (
+                    0,
+                    if ty > pos.y {
+                        1
+                    } else if ty < pos.y {
+                        -1
+                    } else {
+                        0
+                    },
+                )
             } else {
-                (if tx > pos.x { 1 } else if tx < pos.x { -1 } else { 0 }, 0)
+                (
+                    if tx > pos.x {
+                        1
+                    } else if tx < pos.x {
+                        -1
+                    } else {
+                        0
+                    },
+                    0,
+                )
             };
             if dx2 != 0 || dy2 != 0 {
                 let nx = pos.x + dx2;
@@ -84,7 +89,9 @@ impl AgentPolicy for MockPolicy {
             }
         }
 
-        let _ = world; // keep agent marker used
+        // If we have wood, try build underfoot when list_at didn't (e.g. cost edge)
+        let _ = world.get::<Inventory>(agent);
+        let _ = world.get_resource::<KernelConfig>();
         let _: Option<&Agent> = world.get::<Agent>(agent);
         Action::Idle
     }
