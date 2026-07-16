@@ -136,6 +136,8 @@ pub fn build_viewer_snapshot_with(
         (w, h, tiles, tile_colors, vision_rows)
     };
 
+    let can_see = |x: i32, y: i32| -> bool { vis.is_visible(x, y) };
+
     let mut entities = Vec::new();
     {
         let mut q = world.query::<(
@@ -149,7 +151,8 @@ pub fn build_viewer_snapshot_with(
         )>();
         for (id, p, g, inv, hp, profile, _) in q.iter(world) {
             if let Some(allowed) = allowed_agents {
-                if !allowed.contains(&id.0) {
+                // Own tracked agents are always shown; any other agent is shown only if visible now.
+                if !allowed.contains(&id.0) && !can_see(p.x, p.y) {
                     continue;
                 }
             }
@@ -183,8 +186,6 @@ pub fn build_viewer_snapshot_with(
     }
 
     // Only show non-agent entities on currently visible cells.
-    let can_see = |x: i32, y: i32| -> bool { vis.is_visible(x, y) };
-
     {
         let mut q = world.query::<(&StableId, &Position, &Glyph, &Resource)>();
         for (id, p, g, r) in q.iter(world) {
