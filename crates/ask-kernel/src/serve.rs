@@ -15,6 +15,7 @@ use crate::grid::Grid;
 use crate::inspect;
 use anyhow::Result;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::connect_info::ConnectInfo;
 use axum::extract::{Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -115,6 +116,22 @@ struct CellQuery {
     y: i32,
     #[serde(default)]
     token: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct MessageSendRequest {
+    token: String,
+    targets: Vec<u64>,
+    text: String,
+}
+
+#[derive(Debug, Serialize)]
+struct MessageSendResponse {
+    ok: bool,
+    sent: usize,
+    rejected: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
 }
 
 fn validate_action(a: &Action) -> Result<(), &'static str> {
@@ -241,6 +258,7 @@ pub async fn run_server(port: u16, tick_ms: u64, cfg: Config) -> Result<()> {
         .route("/api/track", get(api_track))
         .route("/api/entity", get(api_entity))
         .route("/api/cell", get(api_cell))
+        .route("/api/message", post(api_message_send))
         .route("/ws", get(ws_handler))
         .route_service("/", ServeFile::new(index))
         .nest_service("/static", ServeDir::new(static_dir))
@@ -260,7 +278,11 @@ pub async fn run_server(port: u16, tick_ms: u64, cfg: Config) -> Result<()> {
     eprintln!("[ask] tick {tick_ms}ms");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -381,6 +403,48 @@ async fn api_me(State(st): State<AppState>, Query(q): Query<MeQuery>) -> impl In
         })
         .collect();
 
+    let messages: Vec<serde_json::Value> = {
+        let agent_entity = {
+            let mut q = sim.kernel.world.query::<(Entity, &StableId)>();
+            q.iter(&sim.kernel.world)
+                .find(|(_, sid)| sid.0 == a.id)
+                .map(|(e, _)| e)
+        };
+        if let Some(entity) = agent_entity {
+            let unread = {
+                let mb = sim
+                    .kernel
+                    .world
+                    .get::<crate::components::AgentMailbox>(entity);
+                mb.map(|m| {
+                    m.unread()
+                        .iter()
+                        .map(|env| {
+                            serde_json::json!({
+                                "id": env.id,
+                                "from": env.from,
+                                "text": env.text,
+                                "sent_tick": env.sent_tick,
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+            };
+            let ids: Vec<u64> = unread.iter().map(|v| v["id"].as_u64().unwrap_or(0)).collect();
+            if let Some(mut mb) = sim
+                .kernel
+                .world
+                .get_mut::<crate::components::AgentMailbox>(entity)
+            {
+                mb.mark_read(&ids);
+            }
+            unread
+        } else {
+            Vec::new()
+        }
+    };
+
     Json(serde_json::json!({
         "ok": true,
         "tick": snap.tick,
@@ -396,6 +460,7 @@ async fn api_me(State(st): State<AppState>, Query(q): Query<MeQuery>) -> impl In
         "adjacent": adj,
         "interactions": snap.interactions,
         "recent_events": snap.recent_events,
+        "messages": messages,
     }))
 }
 
@@ -553,6 +618,106 @@ async fn api_cell(State(st): State<AppState>, Query(q): Query<CellQuery>) -> imp
             "reason": "out_of_bounds",
         })),
     }
+}
+
+async fn api_message_send(
+    State(st): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(req): Json<MessageSendRequest>,
+) -> impl IntoResponse {
+    const MAX_LEN: usize = 500;
+    let text = req.text.trim().to_string();
+    if text.is_empty() {
+        return Json(MessageSendResponse {
+            ok: false,
+            sent: 0,
+            rejected: 0,
+            reason: Some("empty text".into()),
+        });
+    }
+    if text.len() > MAX_LEN {
+        return Json(MessageSendResponse {
+            ok: false,
+            sent: 0,
+            rejected: 0,
+            reason: Some("text too long".into()),
+        });
+    }
+
+    let mut sim = st.sim.lock().await;
+    let Some(vis) = player_visible_map(&mut sim.kernel.world, &st.reg, &req.token) else {
+        return Json(MessageSendResponse {
+            ok: false,
+            sent: 0,
+            rejected: 0,
+            reason: Some("unauthorized".into()),
+        });
+    };
+
+    let is_dev = req
+        .token
+        .split(',')
+        .map(str::trim)
+        .any(|t| st.reg.is_dev_token(t));
+    let sender_ip = addr.ip().to_string();
+    let tick = sim.kernel.tick();
+
+    // Acquire a contiguous id range.
+    let base_id = {
+        let mut counter = sim.kernel.world.resource_mut::<crate::components::MessageCounter>();
+        let id = counter.0;
+        counter.0 += req.targets.len() as u64;
+        id
+    };
+
+    let mut sent = 0;
+    let mut rejected = 0;
+    let mut next_id = base_id;
+
+    for target_id in req.targets {
+        let found = {
+            let mut q = sim
+                .kernel
+                .world
+                .query::<(Entity, &StableId, &Position, &Agent)>();
+            q.iter(&sim.kernel.world)
+                .find(|(_, sid, _, _)| sid.0 == target_id)
+                .map(|(e, _, p, _)| (e, p.x, p.y))
+        };
+
+        let Some((entity, x, y)) = found else {
+            rejected += 1;
+            continue;
+        };
+
+        if !is_dev && !vis.is_visible(x, y) {
+            rejected += 1;
+            continue;
+        }
+
+        let Some(mut mailbox) = sim.kernel.world.get_mut::<crate::components::AgentMailbox>(entity)
+        else {
+            rejected += 1;
+            continue;
+        };
+
+        mailbox.push(crate::components::Envelope {
+            id: next_id,
+            from: sender_ip.clone(),
+            text: text.clone(),
+            sent_tick: tick,
+            read: false,
+        });
+        next_id += 1;
+        sent += 1;
+    }
+
+    Json(MessageSendResponse {
+        ok: true,
+        sent,
+        rejected,
+        reason: None,
+    })
 }
 
 async fn api_action(
