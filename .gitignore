@@ -10,3 +10,6 @@ frogcomposband-master/src/*.o
 frogcomposband-master/src/frogcomposband
 !crates/ask-kernel/data/
 !crates/ask-kernel/data/**
+
+# third-party reference checkout (not ours)
+参照对象frogcomposband-master/

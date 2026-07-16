@@ -18,12 +18,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use axum::extract::State;
 use axum::routing::{get, post};
 use axum::Router;
 use bevy_ecs::prelude::{Entity, World};
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
-use tower_http::services::{ServeDir, ServeFile};
+use tower_http::services::ServeDir;
 
 use crate::auth::{AgentRegistry, RegisterResult};
 use crate::components::{Agent, Position, StableId};
@@ -38,12 +39,20 @@ use crate::world::KernelWorld;
 #[derive(Clone)]
 pub(crate) struct AppState {
     sim: Arc<Mutex<Sim>>,
+    /// Pre-rendered index page (cache-bust query already injected).
+    index_html: Arc<String>,
     /// Recent world events, capped ring (EVENT_CAP). Written by the sim
     /// task directly — no per-tick clone of a whole Vec.
     recent_events: Arc<Mutex<std::collections::VecDeque<crate::events::GameEvent>>>,
     bus: PlayerActionBus,
     reg: AgentRegistry,
     tick_ms: u64,
+}
+
+/// Serve index.html with the static-asset cache-bust injected from the
+/// build version + art catalog version (no more hand-bumped ?v= strings).
+async fn index_page(State(st): State<AppState>) -> impl axum::response::IntoResponse {
+    axum::response::Html(st.index_html.as_str().to_owned())
 }
 
 const EVENT_CAP: usize = 40;
@@ -163,15 +172,26 @@ pub async fn run_server(
 
     eprintln!("[ask] dev token: {}", reg.dev_token());
 
+    let static_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("static");
+    let index_html = {
+        let raw = std::fs::read_to_string(static_dir.join("index.html"))
+            .expect("static/index.html");
+        let ver = format!(
+            "{}-a{}",
+            env!("CARGO_PKG_VERSION"),
+            crate::art::catalog().catalog_version
+        );
+        raw.replace("__ASK_VER__", &ver)
+    };
+
     let state = AppState {
         sim,
+        index_html: Arc::new(index_html),
         recent_events,
         bus,
         reg,
         tick_ms,
     };
-    let static_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("static");
-    let index = static_dir.join("index.html");
 
     // API surface (layered):
     //   Agent loop:   POST /api/register · GET /api/view · POST /api/act · GET /api/catalog
@@ -196,7 +216,7 @@ pub async fn run_server(
         .route("/api/art", get(api::art))
         .route("/api/control", post(api::control))
         .route("/ws", get(ws::handler))
-        .route_service("/", ServeFile::new(index))
+        .route("/", get(index_page))
         .nest_service("/static", ServeDir::new(static_dir))
         .layer(
             CorsLayer::new()

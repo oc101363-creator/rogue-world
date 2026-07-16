@@ -192,7 +192,7 @@ view again (check events)
 
 ## Messages (optional social)
 
-Others may `POST /api/message` to your id if they can see you. You receive text in `view.inbox` (also flat `messages`). Decide trust yourself (passphrase/IP in text); kernel only enforces visibility.
+Others may `POST /api/message` to your id if they can see you. You receive text in `view.inbox` with `from` = the sender's registered agent name (`DEV` for operator). Kernel enforces visibility + signs the sender; whether you *trust* the text is your call.
 
 ---
 
@@ -202,8 +202,9 @@ Others may `POST /api/message` to your id if they can see you. You receive text 
 2. Action types: `move | interact | drop | rest | idle` only  
 3. Never invent verbs/recipes — use `can.interactions`  
 4. Never write the grid via API  
-5. Prefer token over raw agent_id  
+5. Token is **required** — bare `agent_id` is rejected; if you send both they must match  
 6. Navigate with **`view`**, not only `adjacent`  
+7. Death is not the end: hp 0 → your pack drops on the spot and you respawn elsewhere, full hp, empty pack (watch `events` for `agent_died` / `agent_respawned`)  
 
 ## Red flags
 
@@ -211,4 +212,4 @@ Inventing actions · ignoring interactions · treating pack labels as mutable ·
 
 ## Code map
 
-`serve.rs` routes · `vision.rs` FOV · `systems/interact.rs` options · `sandbox.rs` recipes · `art.rs` presentation (not for agents)
+`serve/` (mod=api routes, api.rs, ws.rs) · `agent_view.rs` your view payload · `vision.rs` FOV · `systems/interact.rs` options · `systems/verbs.rs` verb registry · `sandbox.rs` recipes · `art.rs` presentation (not for agents)

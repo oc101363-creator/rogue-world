@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/ask-kernel", "apps/ask-viewer/src-tauri"]
+members = ["crates/ask-kernel"]
 
 [workspace.package]
 edition = "2021"

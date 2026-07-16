@@ -29,6 +29,8 @@ pub enum RoomKind {
 
 pub struct DunRooms {
     pub rooms: Vec<Room>,
+    /// Room-cell map kept for future feature passes (maze vaults use rooms only).
+    #[allow(dead_code)]
     pub room_map: Vec<Vec<bool>>,
 }
 
@@ -42,7 +44,7 @@ pub fn generate_rooms(cave: &mut Cave, rng: &mut Rng) -> DunRooms {
     // Frog default is denser rock; ASK open-world target is more floor.
     let blocks = row_rooms * col_rooms;
     // Aim to attempt rooms on ~85% of blocks (minus edge friction).
-    let mut dun_rooms = (blocks * 85 / 100).max(12).min(blocks - 2);
+    let dun_rooms = (blocks * 85 / 100).max(12).min(blocks - 2);
 
     // Weights inspired by frog room_build_order / room_info_normal
     // Normal 35, Overlap 20, Cavern 20, Vault 8, Trap 10, Crypt 7

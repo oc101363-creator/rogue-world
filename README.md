@@ -6,7 +6,7 @@ A **digital world kernel** for Agents — not an RTS, not a content Roguelike.
 
 Inspired by FrogComposband/Angband **simulation structure** (tick, grid, action→update, saveable world). Code is original.
 
-## MVP-0
+## Run
 
 ```bash
 # needs recent Rust stable (1.78+)
@@ -14,90 +14,77 @@ export PATH="$HOME/.cargo/bin:$PATH"
 cargo test -p ask-kernel
 cargo run -p ask-kernel -- --steps 40
 cargo run -p ask-kernel -- --watch --tick-ms 200
+
+# persistence (works in every mode)
 cargo run -p ask-kernel -- --steps 20 --save data/world.json
 cargo run -p ask-kernel -- --load data/world.json --steps 10
 
-# Web viewer + sandbox
+# Web viewer + sandbox (autosaves every 100 ticks when --save given)
 cargo run -p ask-kernel -- --serve --port 8080 --tick-ms 250
+cargo run -p ask-kernel -- --serve --load data/world.json --save data/world.json
 # open http://127.0.0.1:8080/
 ```
 
-## Sandbox API — two primitives
+## Agent API — the loop is `register → view → act`
 
 ```
-GET  /api/snapshot   → world + FOV + entities + interactions[] + events
-POST /api/action     → { action: move | interact | drop | rest | idle }
-GET  /api/me         → focused agent + interactions (from same snapshot)
-GET  /api/actions    → action catalog
+POST /api/register   once: {name, purpose?} → {token, agent_id, x, y}
+GET  /api/view       ?token= → {self, view, can, inbox, events}   (FOV-local, server-gated)
+POST /api/act        {token, action} → {ok, accepted, tick, reason?}
+GET  /api/catalog    cold data: action types + verbs + recipes (cache once)
+POST /api/message    {token, targets[], text} → delivered into targets' view.inbox
 ```
+
+**Identity = token.** Bare `agent_id` is rejected; sending both must match.
+Ops endpoints (`/api/control`) require the dev token printed at startup.
 
 ```bash
-# read options the world currently offers
-curl -s http://127.0.0.1:8080/api/me | jq '.interactions'
+curl -s -X POST http://127.0.0.1:8080/api/register \
+  -H 'Content-Type: application/json' -d '{"name":"Scout","purpose":"map west"}'
+TOKEN=ask1_…
 
-# move
-curl -s -X POST http://127.0.0.1:8080/api/action \
-  -H 'Content-Type: application/json' \
-  -d '{"action":{"type":"move","dx":1,"dy":0}}'
+curl -s "http://127.0.0.1:8080/api/view?token=$TOKEN" | jq '.can.interactions'
 
-# interact with a target (verb from interactions[])
-curl -s -X POST http://127.0.0.1:8080/api/action \
+curl -s -X POST http://127.0.0.1:8080/api/act \
   -H 'Content-Type: application/json' \
-  -d '{"action":{"type":"interact","dx":0,"dy":0,"verb":"harvest"}}'
+  -d "{\"token\":\"$TOKEN\",\"action\":{\"type\":\"move\",\"dx\":1,\"dy\":0}}"
 
-# default interact (single option / priority pick)
-curl -s -X POST http://127.0.0.1:8080/api/action \
+# interact with a verb the world currently offers
+curl -s -X POST http://127.0.0.1:8080/api/act \
   -H 'Content-Type: application/json' \
-  -d '{"action":{"type":"interact","dx":0,"dy":0}}'
+  -d "{\"token\":\"$TOKEN\",\"action\":{\"type\":\"interact\",\"dx\":0,\"dy\":0,\"verb\":\"harvest\"}}"
 ```
 
 **Actions:** `move` · `interact{dx,dy,verb?,slot?,recipe?}` · `drop` · `rest` · `idle`  
+**Verbs** (discovered via `can.interactions`, never invented): `attack harvest pickup open close descend ascend dig scoop place plant build deconstruct craft`  
+**Pack:** `Matter` stacks — dig/scoop → pack; place/plant/build ← pack; craft transforms pack (recipes in `/api/catalog`).  
+**Death:** hp 0 → pack drops on the spot, agent respawns elsewhere at full hp.
 
-**Sandbox verbs:** `dig` `scoop` `place` `harvest` `plant` `build` `deconstruct` `craft` + doors/stairs/pickup  
+Keys (web UI): `t` dig · `u` scoop · `v` place · `n` plant · `b` build · `x` deconstruct · `y` craft
 
-**Pack:** `Matter` stacks — dig/scoop → pack; place/plant/build ← pack; craft transforms pack (16 recipes).
+### Spectator / ops
 
-```bash
-curl -s http://127.0.0.1:8080/api/me          # pack + interactions
-curl -s http://127.0.0.1:8080/api/actions     # verbs + recipes
-# scoop floor, craft door, dig wall, place block…
-curl -s -X POST http://127.0.0.1:8080/api/action -H 'Content-Type: application/json' \
-  -d '{"action":{"type":"interact","dx":0,"dy":0,"verb":"scoop"}}'
-curl -s -X POST http://127.0.0.1:8080/api/action -H 'Content-Type: application/json' \
-  -d '{"action":{"type":"interact","dx":0,"dy":0,"verb":"craft","recipe":"plank_door"}}'
+```
+GET /api/snapshot?token=a,b  FOV-gated map for the web UI (unseen cells masked)
+GET /api/track /api/agents   public poses
+GET /api/entity /api/cell    inspect (visibility-gated)
+GET /api/art                 presentation catalog (renderers, not agent brains)
+WS  /ws                      {type:subscribe, tokens[]} → snapshot per tick
+GET /api/status · POST /api/control (dev token)
 ```
 
-Keys: `t` dig · `u` scoop · `v` place · `n` plant · `b` build · `x` deconstruct · `y` craft  
-Spec: `docs/superpowers/specs/2026-07-16-sandbox-matter-pack-design.md`  
-**Agent skill:** `.claude/skills/ask-sandbox/SKILL.md` (also `~/.claude/skills/ask-sandbox/`) — register → token → dig/place/craft.
-
-### Multi-agent identity
-
-```bash
-# skill asks name/purpose, then:
-curl -s -X POST http://127.0.0.1:8080/api/register \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Scout","purpose":"map west"}'
-# → { token: "ask1_…", agent_id, x, y }  # give token to player for tracking
-
-curl -s -X POST http://127.0.0.1:8080/api/action \
-  -H 'Content-Type: application/json' \
-  -d '{"token":"ask1_…","action":{"type":"move","dx":1,"dy":0}}'
-
-curl -s "http://127.0.0.1:8080/api/track?token=ask1_…"
-```
-
-Web UI: left **AGENT TRACK** panel — paste tokens to follow multiple agents on one map (Rogue-80 chrome).
+**Agent skill:** `.claude/skills/ask-sandbox/SKILL.md` — the single source of the agent contract (install to `~/.claude/skills/ask-sandbox/`).
 
 ## Docs
 
+- `docs/ARCHITECTURE.md` — layering rules (enforced by `tests/architecture.rs`)
+- `docs/INDEX.md` — spec/plan index with status
 - Design: `docs/superpowers/specs/2026-07-15-ask-kernel-mvp0-design.md`
-- Plan: `docs/superpowers/plans/2026-07-15-ask-kernel-mvp0.md`
 
 ## Layout
 
 ```
-crates/ask-kernel/     Rust world kernel
-frogcomposband-master/ Reference only (not linked)
-docs/                  Specs and plans
+crates/ask-kernel/     Rust world kernel (sim + HTTP/WS server + web static)
+参照对象frogcomposband-master/   Reference only (not linked, not tracked)
+docs/                  Specs, plans, architecture notes
 ```

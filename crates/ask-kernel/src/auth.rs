@@ -24,8 +24,6 @@ struct AgentRecord {
     agent_id: u64,
     name: String,
     purpose: String,
-    /// Full secret token (only returned once at register; stored for auth).
-    token: String,
     x: i32,
     y: i32,
     alive: bool,
@@ -140,7 +138,6 @@ impl AgentRegistry {
             agent_id,
             name,
             purpose,
-            token: token.clone(),
             x,
             y,
             alive: true,

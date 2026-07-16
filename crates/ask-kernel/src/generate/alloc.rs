@@ -7,7 +7,6 @@ use crate::grid::Grid;
 use crate::k_info;
 use crate::r_info;
 use crate::vaults::{SpawnMon, SpawnObj};
-use crate::world::Depth;
 
 /// Frog: usually ~14 base + depth noise, scaled for small levels.
 pub fn alloc_monsters(grid: &Grid, depth: u32, rng: &mut Rng, out: &mut Vec<SpawnMon>) {
