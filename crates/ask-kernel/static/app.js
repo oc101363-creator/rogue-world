@@ -22,6 +22,7 @@ const elInspectPopup = document.getElementById("inspect-popup");
 const elInspectTitle = document.getElementById("inspect-title");
 const elInspectBody = document.getElementById("inspect-body");
 const elInspectClose = document.getElementById("inspect-close");
+const elSelectBox = document.getElementById("select-box");
 
 const ZOOM_STEPS = [6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 40];
 const THEME_KEY = "ask-theme";
@@ -43,6 +44,10 @@ let pendingDirCmd = null; // "open" | "close" | "attack" | "dig" | "place" | "sc
 /** @type {{token:string, agent_id?:number, name?:string, purpose?:string, x?:number, y?:number, color:string}[]} */
 let tracked = loadTracked();
 let followToken = tracked.length ? tracked[0].token : null; // which tracked agent camera follows
+
+let selecting = false;
+let selectStart = null; // { sx, sy, wx, wy }
+let selectedAgentIds = new Set();
 
 const cam = {
   tx: 0,
@@ -233,6 +238,98 @@ function sendSubscribe() {
 
 function cellSize() {
   return ZOOM_STEPS[cam.zi];
+}
+
+function worldAtScreen(clientX, clientY) {
+  const mapRect = elMap.getBoundingClientRect();
+  const cs = cellSize();
+  const sx = clientX - mapRect.left;
+  const sy = clientY - mapRect.top;
+  return {
+    wx: Math.floor(cam.tx + sx / cs),
+    wy: Math.floor(cam.ty + sy / cs),
+    sx,
+    sy,
+  };
+}
+
+function updateSelectionPanel() {
+  // no selection panel in current UI; stub for future use
+}
+
+function updateSelectionHighlight() {
+  // drawSnap already reads selectedAgentIds globally
+  if (lastSnap) drawSnap(lastSnap);
+}
+
+function setSelectedAgents(ids) {
+  selectedAgentIds = new Set(ids);
+  updateSelectionPanel();
+  updateSelectionHighlight();
+}
+
+function toggleSelectAgent(id) {
+  if (selectedAgentIds.has(id)) {
+    selectedAgentIds.delete(id);
+  } else {
+    selectedAgentIds.add(id);
+  }
+  updateSelectionPanel();
+  updateSelectionHighlight();
+}
+
+function startBoxSelect(e) {
+  const { wx, wy, sx, sy } = worldAtScreen(e.clientX, e.clientY);
+  selecting = true;
+  selectStart = { sx, sy, wx, wy };
+  elSelectBox.style.left = sx + "px";
+  elSelectBox.style.top = sy + "px";
+  elSelectBox.style.width = "0px";
+  elSelectBox.style.height = "0px";
+  elSelectBox.classList.add("active");
+}
+
+function updateBoxSelect(e) {
+  if (!selecting || !selectStart) return;
+  const { sx, sy } = worldAtScreen(e.clientX, e.clientY);
+  const left = Math.min(selectStart.sx, sx);
+  const top = Math.min(selectStart.sy, sy);
+  const width = Math.abs(selectStart.sx - sx);
+  const height = Math.abs(selectStart.sy - sy);
+  elSelectBox.style.left = left + "px";
+  elSelectBox.style.top = top + "px";
+  elSelectBox.style.width = width + "px";
+  elSelectBox.style.height = height + "px";
+}
+
+function finishBoxSelect(e) {
+  if (!selecting || !selectStart) return;
+  selecting = false;
+  elSelectBox.classList.remove("active");
+
+  const { wx, wy } = worldAtScreen(e.clientX, e.clientY);
+  const x0 = Math.min(selectStart.wx, wx);
+  const x1 = Math.max(selectStart.wx, wx);
+  const y0 = Math.min(selectStart.wy, wy);
+  const y1 = Math.max(selectStart.wy, wy);
+
+  const ids = (lastSnap ? lastSnap.entities : [])
+    .filter(
+      (en) =>
+        en.kind === "agent" &&
+        en.x >= x0 &&
+        en.x <= x1 &&
+        en.y >= y0 &&
+        en.y <= y1,
+    )
+    .map((en) => en.id);
+
+  if (e.ctrlKey) {
+    for (const id of ids) toggleSelectAgent(id);
+  } else {
+    setSelectedAgents(ids);
+  }
+  pushLog(`SELECTED ${selectedAgentIds.size} agents`);
 }
 
 function applyThemeChrome() {
@@ -427,6 +524,7 @@ function drawSnap(snap) {
 
   const ents = snap.entities || [];
   const e = theme.entities;
+  const SELECT_BG = theme.selection || "#003333";
   const trackedIds = new Set(
     tracked.map((t) => t.agent_id).filter((id) => id != null),
   );
@@ -440,7 +538,11 @@ function drawSnap(snap) {
       const tr = tracked.find((t) => t.agent_id === ent.id);
       const fg = tr ? tr.color : e.agent;
       const glyph = ent.name ? ent.name[0].toUpperCase() : "@";
-      d.draw(vx, vy, glyph === "@" || !/[A-Za-z]/.test(glyph) ? "@" : glyph, fg, e.entityBg);
+      let bg = e.entityBg;
+      if (selectedAgentIds.has(ent.id)) {
+        bg = SELECT_BG;
+      }
+      d.draw(vx, vy, glyph === "@" || !/[A-Za-z]/.test(glyph) ? "@" : glyph, fg, bg);
     } else {
       const fg = e[ent.kind] || e.iron;
       d.draw(vx, vy, ent.glyph || "?", fg, e.entityBg);
@@ -607,6 +709,17 @@ function handleInspectClick(e, button) {
     fetchEntityInspect(sorted[0].id);
   } else {
     fetchCellInspect(wx, wy);
+  }
+}
+
+function handleSelectClick(e) {
+  if (!lastSnap || mapW <= 0 || mapH <= 0) return;
+  const { wx, wy } = worldAtScreen(e.clientX, e.clientY);
+  const ent = (lastSnap.entities || []).find(
+    (en) => en.kind === "agent" && en.x === wx && en.y === wy,
+  );
+  if (ent) {
+    toggleSelectAgent(ent.id);
   }
 }
 
@@ -815,6 +928,13 @@ elViewport.addEventListener(
 
 elViewport.addEventListener("mousedown", (e) => {
   if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
+
+  if (e.shiftKey && e.button === 0) {
+    e.preventDefault();
+    startBoxSelect(e);
+    return;
+  }
+
   dragging = true;
   dragLast = { x: e.clientX, y: e.clientY };
   accumX = 0;
@@ -825,6 +945,8 @@ elViewport.addEventListener("mousedown", (e) => {
     y: e.clientY,
     t: performance.now(),
     button: e.button,
+    shiftKey: e.shiftKey,
+    ctrlKey: e.ctrlKey,
   };
   elViewport.classList.add("dragging");
   cam.follow = false;
@@ -832,6 +954,10 @@ elViewport.addEventListener("mousedown", (e) => {
 });
 
 window.addEventListener("mousemove", (e) => {
+  if (selecting) {
+    updateBoxSelect(e);
+    return;
+  }
   if (!dragging || !dragLast) return;
   const dx = e.clientX - dragLast.x;
   const dy = e.clientY - dragLast.y;
@@ -862,6 +988,10 @@ window.addEventListener("mousemove", (e) => {
 });
 
 window.addEventListener("mouseup", (e) => {
+  if (selecting) {
+    finishBoxSelect(e);
+    return;
+  }
   if (!dragging) return;
   dragging = false;
   dragLast = null;
@@ -871,7 +1001,11 @@ window.addEventListener("mouseup", (e) => {
   if (down) {
     const dt = performance.now() - down.t;
     if (dragPixelDist < 6 && dt < 450) {
-      handleInspectClick(e, down.button);
+      if (down.ctrlKey) {
+        handleSelectClick(e);
+      } else {
+        handleInspectClick(e, down.button);
+      }
     }
   }
 });

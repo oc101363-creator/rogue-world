@@ -72,6 +72,18 @@ body {
   display: block;
 }
 
+#select-box {
+  position: absolute;
+  border: 1px solid var(--r80-accent);
+  background: rgba(0, 255, 255, 0.12);
+  pointer-events: none;
+  z-index: 3;
+  display: none;
+}
+#select-box.active {
+  display: block;
+}
+
 /* ---- Terminal panels (box frames) ---- */
 .term-panel {
   background: var(--panel-bg);
