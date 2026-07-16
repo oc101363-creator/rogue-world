@@ -4,8 +4,8 @@ use bevy_ecs::prelude::*;
 
 use crate::actions::ActionQueue;
 use crate::components::{
-    Agent, AgentProfile, Glyph, Health, Inventory, Item, Monster, Position, Resource, ResourceKind,
-    StableId, VisionMemory,
+    Agent, AgentMailbox, AgentProfile, Glyph, Health, Inventory, Item, MessageCounter, Monster,
+    Position, Resource, ResourceKind, StableId, VisionMemory,
 };
 use crate::config::Config;
 use crate::events::EventBuf;
@@ -46,6 +46,7 @@ impl KernelWorld {
         world.insert_resource(level.grid);
         world.insert_resource(TickCounter(0));
         world.insert_resource(IdCounter(0));
+        world.insert_resource(MessageCounter(0));
         world.insert_resource(ActionQueue::default());
         world.insert_resource(EventBuf::default());
         world.insert_resource(KernelConfig {
@@ -124,6 +125,7 @@ impl KernelWorld {
 
         self.world.spawn((
             Agent,
+            AgentMailbox::new(),
             Position {
                 x: agent_pos.0,
                 y: agent_pos.1,
@@ -204,6 +206,7 @@ impl KernelWorld {
         };
         self.world.spawn((
             Agent,
+            AgentMailbox::new(),
             Position {
                 x: agent.0,
                 y: agent.1,

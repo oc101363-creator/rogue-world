@@ -366,3 +366,76 @@ impl Item {
         self.matter.color()
     }
 }
+
+/// One message delivered to an agent from an external player/spectator.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Envelope {
+    pub id: u64,
+    pub from: String,
+    pub text: String,
+    pub sent_tick: u64,
+    pub read: bool,
+}
+
+/// Per-agent inbox. Lives on every entity with `Agent`.
+#[derive(Component, Clone, Debug, Default, Serialize, Deserialize)]
+pub struct AgentMailbox {
+    pub messages: Vec<Envelope>,
+}
+
+impl AgentMailbox {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Append a message, dropping oldest if the cap is exceeded.
+    pub fn push(&mut self, env: Envelope) {
+        const CAP: usize = 32;
+        self.messages.push(env);
+        if self.messages.len() > CAP {
+            let drop = self.messages.len() - CAP;
+            self.messages.drain(0..drop);
+        }
+    }
+
+    pub fn unread(&self) -> Vec<&Envelope> {
+        self.messages.iter().filter(|m| !m.read).collect()
+    }
+
+    pub fn mark_read(&mut self, ids: &[u64]) {
+        for m in &mut self.messages {
+            if ids.contains(&m.id) {
+                m.read = true;
+            }
+        }
+    }
+}
+
+/// Global monotonic id source for Envelopes.
+#[derive(Resource, Default, Debug, Clone, Copy)]
+pub struct MessageCounter(pub u64);
+
+#[cfg(test)]
+mod mailbox_tests {
+    use super::*;
+
+    #[test]
+    fn mailbox_keeps_unread_and_caps_at_32() {
+        let mut mb = AgentMailbox::new();
+        for i in 0..40 {
+            mb.push(Envelope {
+                id: 100 + i as u64,
+                from: "anon".into(),
+                text: format!("msg {i}"),
+                sent_tick: i as u64,
+                read: false,
+            });
+        }
+        assert_eq!(mb.messages.len(), 32);
+        // oldest messages dropped on overflow
+        assert_eq!(mb.messages[0].id, 108);
+        assert_eq!(mb.unread().len(), 32);
+        mb.mark_read(&[108, 109]);
+        assert_eq!(mb.unread().len(), 30);
+    }
+}
