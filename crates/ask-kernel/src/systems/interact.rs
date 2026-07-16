@@ -8,14 +8,9 @@ use crate::events::{EventBuf, GameEvent};
 use crate::f_info;
 use crate::grid::Grid;
 use crate::sandbox;
-use crate::systems::build::apply_build_hut;
-use crate::systems::combat::apply_attack;
-use crate::systems::craft::{apply_craft, apply_deconstruct, apply_plant, can_plant, list_crafts};
-use crate::systems::dig::{apply_dig, apply_place, apply_scoop, is_diggable, is_scoopable};
-use crate::systems::harvest::apply_harvest;
-use crate::systems::inventory_act::apply_pickup;
+use crate::systems::craft::{can_plant, list_crafts};
+use crate::systems::dig::{is_diggable, is_scoopable};
 use crate::systems::stable_id;
-use crate::systems::terrain::{apply_close_door, apply_open_door, apply_use_stairs};
 use crate::world::KernelConfig;
 
 pub fn list_at(world: &mut World, agent: Entity, dx: i32, dy: i32) -> Vec<Interaction> {
@@ -248,20 +243,12 @@ pub fn apply_interact(
 ) {
     let eid = stable_id(world, agent);
 
-    // craft can use recipe without matching list scan
-    if verb.as_deref() == Some("craft") {
-        if let Some(rid) = recipe {
-            apply_craft(world, agent, &rid);
-            return;
-        }
-    }
-
-    if !((dx == 0 && dy == 0) || dx.abs() + dy.abs() == 1) {
+    if let Err(reason) = crate::actions::check_step(dx, dy, true) {
         world
             .resource_mut::<EventBuf>()
             .push(GameEvent::ActionRejected {
                 entity: eid,
-                reason: "interact_range".into(),
+                reason: format!("interact_range:{reason}"),
             });
         return;
     }
@@ -277,62 +264,32 @@ pub fn apply_interact(
         return;
     }
 
-    let chosen = if let Some(v) = verb.as_deref() {
-        if v == "craft" {
-            if let Some(ref rid) = recipe {
-                options
-                    .iter()
-                    .find(|o| o.verb == "craft" && o.recipe.as_deref() == Some(rid))
-                    .cloned()
-                    .or_else(|| {
-                        Some(Interaction {
-                            dx,
-                            dy,
-                            verb: "craft".into(),
-                            label: rid.clone(),
-                            target_id: None,
-                            slot: None,
-                            recipe: Some(rid.clone()),
-                        })
-                    })
-            } else {
-                options.iter().find(|o| o.verb == "craft").cloned()
+    // Resolve the intended option: named verb (with slot/recipe matching),
+    // or the registry's priority fallback when unnamed.
+    let chosen = match verb.as_deref() {
+        Some(v) => {
+            let matches = |o: &Interaction| o.verb == v;
+            let found = options
+                .iter()
+                .find(|o| matches(o) && (v != "place" || slot.is_none() || o.slot == slot))
+                .or_else(|| options.iter().find(|o| matches(o)));
+            match (found, v) {
+                (Some(o), _) => Some(o.clone()),
+                // craft may run from a recipe id even when discovery found nothing
+                (None, "craft") => recipe.clone().map(|rid| Interaction {
+                    dx,
+                    dy,
+                    verb: "craft".into(),
+                    label: rid.clone(),
+                    target_id: None,
+                    slot: None,
+                    recipe: Some(rid),
+                }),
+                _ => None,
             }
-        } else if v == "place" {
-            if let Some(si) = slot {
-                options
-                    .iter()
-                    .find(|o| o.verb == "place" && o.slot == Some(si))
-                    .cloned()
-                    .or_else(|| options.iter().find(|o| o.verb == "place").cloned())
-            } else {
-                options.iter().find(|o| o.verb == "place").cloned()
-            }
-        } else {
-            options.iter().find(|o| o.verb == v).cloned()
         }
-    } else if options.len() == 1 {
-        Some(options[0].clone())
-    } else {
-        const ORDER: &[&str] = &[
-            "attack",
-            "harvest",
-            "pickup",
-            "open",
-            "close",
-            "descend",
-            "ascend",
-            "dig",
-            "scoop",
-            "place",
-            "plant",
-            "build",
-            "deconstruct",
-            "craft",
-        ];
-        ORDER
-            .iter()
-            .find_map(|v| options.iter().find(|o| o.verb == *v).cloned())
+        None if options.len() == 1 => Some(options[0].clone()),
+        None => crate::systems::verbs::pick_by_priority(&options).cloned(),
     };
 
     let Some(choice) = chosen else {
@@ -346,64 +303,21 @@ pub fn apply_interact(
         return;
     };
 
-    let place_slot = slot.or(choice.slot);
-    let craft_id = recipe.or(choice.recipe);
+    let Some(spec) = crate::systems::verbs::lookup(&choice.verb) else {
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::ActionRejected {
+                entity: eid,
+                reason: format!("unknown_verb:{}", choice.verb),
+            });
+        return;
+    };
 
-    match choice.verb.as_str() {
-        "attack" => apply_attack(world, agent, dx, dy),
-        "harvest" => {
-            if dx != 0 || dy != 0 {
-                world
-                    .resource_mut::<EventBuf>()
-                    .push(GameEvent::ActionRejected {
-                        entity: eid,
-                        reason: "harvest_underfoot_only".into(),
-                    });
-            } else {
-                apply_harvest(world, agent);
-            }
-        }
-        "pickup" => {
-            if dx != 0 || dy != 0 {
-                world
-                    .resource_mut::<EventBuf>()
-                    .push(GameEvent::ActionRejected {
-                        entity: eid,
-                        reason: "pickup_underfoot_only".into(),
-                    });
-            } else {
-                apply_pickup(world, agent);
-            }
-        }
-        "open" => apply_open_door(world, agent, dx, dy),
-        "close" => apply_close_door(world, agent, dx, dy),
-        "descend" => apply_use_stairs(world, agent, true),
-        "ascend" => apply_use_stairs(world, agent, false),
-        "dig" => apply_dig(world, agent, dx, dy),
-        "scoop" => apply_scoop(world, agent, dx, dy),
-        "place" => apply_place(world, agent, dx, dy, place_slot),
-        "plant" => apply_plant(world, agent, dx, dy),
-        "build" => apply_build_hut(world, agent),
-        "deconstruct" => apply_deconstruct(world, agent, dx, dy),
-        "craft" => {
-            if let Some(rid) = craft_id {
-                apply_craft(world, agent, &rid);
-            } else {
-                world
-                    .resource_mut::<EventBuf>()
-                    .push(GameEvent::ActionRejected {
-                        entity: eid,
-                        reason: "craft_needs_recipe".into(),
-                    });
-            }
-        }
-        other => {
-            world
-                .resource_mut::<EventBuf>()
-                .push(GameEvent::ActionRejected {
-                    entity: eid,
-                    reason: format!("unknown_verb:{other}"),
-                });
-        }
-    }
+    let call = crate::systems::verbs::VerbCall {
+        dx,
+        dy,
+        slot: slot.or(choice.slot),
+        recipe: recipe.or(choice.recipe),
+    };
+    (spec.apply)(world, agent, &call);
 }

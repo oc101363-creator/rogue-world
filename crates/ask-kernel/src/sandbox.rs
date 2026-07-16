@@ -3,7 +3,7 @@
 //! Design: few verbs (dig/scoop/place/craft/plant/deconstruct) × rich Matter
 //! tables = combinatorial world edits without new Action variants per feature.
 
-use crate::components::{Matter, ResourceKind};
+use crate::components::{Inventory, Matter, ResourceKind};
 use crate::f_info::{self, id, FeatId};
 
 /// Dig/scoop: what happens when removing `feat` from the grid.
@@ -154,10 +154,41 @@ pub fn can_place_on(cur: FeatId, placing: FeatId, underfoot: bool) -> Result<(),
 #[derive(Clone, Debug)]
 pub struct Recipe {
     pub id: &'static str,
-    pub label: &'static str,
+    /// Product name WITHOUT counts (the label's counts come from `needs`,
+    /// so the two can never drift apart).
+    pub name: &'static str,
     /// (matcher kind tag, count) — see RecipeNeed
     pub needs: &'static [RecipeNeed],
     pub output: RecipeOut,
+}
+
+impl Recipe {
+    /// Display label, e.g. "craft closed door (2 wood)" — generated.
+    pub fn label(&self) -> String {
+        let needs = self
+            .needs
+            .iter()
+            .map(need_label)
+            .collect::<Vec<_>>()
+            .join(" + ");
+        format!("craft {} ({})", self.name, needs)
+    }
+}
+
+pub fn need_label(need: &RecipeNeed) -> String {
+    match *need {
+        RecipeNeed::Wood(n) => format!("{n} wood"),
+        RecipeNeed::Iron(n) => format!("{n} iron"),
+        RecipeNeed::Terrain(f, n) => {
+            let name = f_info::table()
+                .get(f)
+                .map(|i| i.name.to_lowercase())
+                .unwrap_or_else(|| "terrain".into());
+            format!("{n} {name}")
+        }
+        RecipeNeed::AnyRock(n) => format!("{n} rock"),
+        RecipeNeed::AnyTerrain(n) => format!("{n} terrain"),
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -182,97 +213,97 @@ pub fn recipes() -> &'static [Recipe] {
     &[
         Recipe {
             id: "plank_door",
-            label: "craft closed door (2 wood)",
+            name: "closed door",
             needs: &[RecipeNeed::Wood(2)],
             output: RecipeOut::Terrain(id::CLOSED_DOOR),
         },
         Recipe {
             id: "open_door",
-            label: "craft open door (2 wood)",
+            name: "open door",
             needs: &[RecipeNeed::Wood(2)],
             output: RecipeOut::Terrain(id::OPEN_DOOR),
         },
         Recipe {
             id: "sapling",
-            label: "craft tree block (1 wood)",
+            name: "tree block",
             needs: &[RecipeNeed::Wood(1)],
             output: RecipeOut::Terrain(id::TREE),
         },
         Recipe {
             id: "grass_seed",
-            label: "craft grass (2 dirt)",
+            name: "grass",
             needs: &[RecipeNeed::Terrain(id::DIRT, 2)],
             output: RecipeOut::Terrain(id::GRASS),
         },
         Recipe {
             id: "compact_rock",
-            label: "compact rubble → granite (2 rubble)",
+            name: "granite",
             needs: &[RecipeNeed::Terrain(id::RUBBLE, 2)],
             output: RecipeOut::Terrain(id::GRANITE),
         },
         Recipe {
             id: "crush_rock",
-            label: "crush rock → rubble (1 rock)",
+            name: "rubble",
             needs: &[RecipeNeed::AnyRock(1)],
             output: RecipeOut::Terrain(id::RUBBLE),
         },
         Recipe {
             id: "ore_vein",
-            label: "forge ore vein (1 iron + 1 granite)",
+            name: "ore vein",
             needs: &[RecipeNeed::Iron(1), RecipeNeed::Terrain(id::GRANITE, 1)],
             output: RecipeOut::Terrain(id::MAGMA_TREASURE),
         },
         Recipe {
             id: "quartz_vein",
-            label: "forge quartz vein (1 iron + 1 rubble)",
+            name: "quartz vein",
             needs: &[RecipeNeed::Iron(1), RecipeNeed::Terrain(id::RUBBLE, 1)],
             output: RecipeOut::Terrain(id::QUARTZ_VEIN),
         },
         Recipe {
             id: "shallow_pool",
-            label: "shallow water (1 deep water)",
+            name: "shallow water",
             needs: &[RecipeNeed::Terrain(id::DEEP_WATER, 1)],
             output: RecipeOut::Terrain(id::SHALLOW_WATER),
         },
         Recipe {
             id: "deep_pool",
-            label: "deep water (2 shallow water)",
+            name: "deep water",
             needs: &[RecipeNeed::Terrain(id::SHALLOW_WATER, 2)],
             output: RecipeOut::Terrain(id::DEEP_WATER),
         },
         Recipe {
             id: "fill_floor",
-            label: "floor tile (1 dirt)",
+            name: "floor tile",
             needs: &[RecipeNeed::Terrain(id::DIRT, 1)],
             output: RecipeOut::Terrain(id::FLOOR),
         },
         Recipe {
             id: "mountain",
-            label: "stack mountain (3 granite)",
+            name: "mountain",
             needs: &[RecipeNeed::Terrain(id::GRANITE, 3)],
             output: RecipeOut::Terrain(id::MOUNTAIN),
         },
         Recipe {
             id: "smelt_iron",
-            label: "smelt iron (1 ore vein)",
+            name: "iron",
             needs: &[RecipeNeed::Terrain(id::MAGMA_TREASURE, 1)],
             output: RecipeOut::Resource(ResourceKind::Iron, 2),
         },
         Recipe {
             id: "chop_wood",
-            label: "chop tree block → 2 wood",
+            name: "wood",
             needs: &[RecipeNeed::Terrain(id::TREE, 1)],
             output: RecipeOut::Resource(ResourceKind::Wood, 2),
         },
         Recipe {
             id: "lava_cool",
-            label: "cool lava → rubble",
+            name: "rubble",
             needs: &[RecipeNeed::Terrain(id::SHALLOW_LAVA, 1)],
             output: RecipeOut::Terrain(id::RUBBLE),
         },
         Recipe {
             id: "dirt_from_rubble",
-            label: "weather rubble → dirt",
+            name: "dirt",
             needs: &[RecipeNeed::Terrain(id::RUBBLE, 1)],
             output: RecipeOut::Terrain(id::DIRT),
         },
@@ -348,6 +379,15 @@ pub fn can_craft(slots: &[(Matter, u32)], recipe: &Recipe) -> bool {
 /// Flatten inventory to (matter, qty) for recipe checks.
 pub fn pack_view(slots: &[crate::components::Stack]) -> Vec<(Matter, u32)> {
     slots.iter().map(|s| (s.matter.clone(), s.qty)).collect()
+}
+
+/// Remove qty of any rock-family terrain from a pack.
+/// Lives here (not on Inventory) so components never depends on rules.
+pub fn remove_any_rock(inv: &mut Inventory, qty: u32) -> bool {
+    inv.remove_matching(
+        |m| matches!(m, Matter::Terrain { feat } if is_rock_feat(*feat)),
+        qty,
+    )
 }
 
 pub fn is_rock_feat(feat: FeatId) -> bool {

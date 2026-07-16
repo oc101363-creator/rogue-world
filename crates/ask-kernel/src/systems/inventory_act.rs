@@ -2,10 +2,9 @@
 
 use bevy_ecs::prelude::*;
 
-use crate::components::{Agent, Glyph, Inventory, Item, Matter, Position, StableId};
+use crate::components::{Glyph, Inventory, Item, Position, StableId};
 use crate::events::{EventBuf, GameEvent};
 use crate::systems::stable_id;
-use crate::world::IdCounter;
 
 pub fn apply_drop_item(world: &mut World, agent: Entity, index: usize) {
     let eid = stable_id(world, agent);
@@ -37,11 +36,7 @@ pub fn apply_drop_item(world: &mut World, agent: Entity, index: usize) {
         }
     };
 
-    let id = {
-        let mut c = world.resource_mut::<IdCounter>();
-        c.0 += 1;
-        c.0
-    };
+    let id = crate::world::next_id(world);
     let glyph = matter.glyph();
     let name = matter.label();
     world.spawn((
@@ -65,15 +60,7 @@ pub fn apply_pickup(world: &mut World, agent: Entity) {
     let Some(apos) = world.get::<Position>(agent).copied() else {
         return;
     };
-    let picks: Vec<(Entity, Matter, u32)> = crate::spatial::at(world, apos.x, apos.y)
-        .into_iter()
-        .filter_map(|e| {
-            world
-                .get::<Item>(e)
-                .map(|it| (e, it.matter.clone(), it.qty))
-        })
-        .collect();
-    if picks.is_empty() {
+    if crate::systems::items::pickup_at(world, agent, apos) == 0 {
         let eid = stable_id(world, agent);
         world
             .resource_mut::<EventBuf>()
@@ -81,30 +68,7 @@ pub fn apply_pickup(world: &mut World, agent: Entity) {
                 entity: eid,
                 reason: "nothing_to_pickup".into(),
             });
-        return;
     }
-    for (item_e, matter, qty) in picks {
-        let name = if qty > 1 {
-            format!("{}×{qty}", matter.label())
-        } else {
-            matter.label()
-        };
-        if let Some(mut inv) = world.get_mut::<Inventory>(agent) {
-            inv.add(matter, qty);
-        }
-        let aid = stable_id(world, agent);
-        let iid = stable_id(world, item_e);
-        world
-            .resource_mut::<EventBuf>()
-            .push(GameEvent::ItemPickedUp {
-                entity: aid,
-                item: iid,
-                name,
-                at: (apos.x, apos.y),
-            });
-        world.despawn(item_e);
-    }
-    let _ = world.get::<Agent>(agent);
 }
 
 pub fn apply_rest(world: &mut World, agent: Entity) {

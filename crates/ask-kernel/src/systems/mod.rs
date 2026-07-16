@@ -10,6 +10,7 @@ pub mod items;
 pub mod monster;
 pub mod movement;
 pub mod terrain;
+pub mod verbs;
 
 use bevy_ecs::prelude::*;
 

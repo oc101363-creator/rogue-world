@@ -4,7 +4,7 @@ use crate::components::{Building, Glyph, Inventory, Position, ResourceKind, Stab
 use crate::events::{EventBuf, GameEvent};
 use crate::grid::Grid;
 use crate::systems::stable_id;
-use crate::world::{IdCounter, KernelConfig};
+use crate::world::KernelConfig;
 
 pub fn apply_build_hut(world: &mut World, agent: Entity) {
     let cost = world.resource::<KernelConfig>().hut_wood_cost;
@@ -48,11 +48,7 @@ pub fn apply_build_hut(world: &mut World, agent: Entity) {
         let _ = inv.remove_resource(ResourceKind::Wood, cost);
     }
 
-    let id = {
-        let mut c = world.resource_mut::<IdCounter>();
-        c.0 += 1;
-        c.0
-    };
+    let id = crate::world::next_id(world);
     world.spawn((
         Position {
             x: apos.x,

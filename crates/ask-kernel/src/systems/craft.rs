@@ -12,7 +12,6 @@ use crate::sandbox::{
     self, can_craft, expand_output, need_required, pack_view, recipe_by_id, recipes, RecipeNeed,
 };
 use crate::systems::stable_id;
-use crate::world::IdCounter;
 
 fn consume_need(inv: &mut Inventory, need: &RecipeNeed) -> bool {
     let n = need_required(need);
@@ -20,27 +19,9 @@ fn consume_need(inv: &mut Inventory, need: &RecipeNeed) -> bool {
         RecipeNeed::Wood(_) => inv.remove_resource(ResourceKind::Wood, n),
         RecipeNeed::Iron(_) => inv.remove_resource(ResourceKind::Iron, n),
         RecipeNeed::Terrain(feat, _) => inv.remove_terrain(feat, n),
-        RecipeNeed::AnyRock(_) => inv.remove_any_rock(n),
+        RecipeNeed::AnyRock(_) => sandbox::remove_any_rock(inv, n),
         RecipeNeed::AnyTerrain(_) => {
-            let mut left = n;
-            inv.slots.retain_mut(|s| {
-                if left == 0 {
-                    return true;
-                }
-                if matches!(s.matter, Matter::Terrain { .. }) {
-                    if s.qty <= left {
-                        left -= s.qty;
-                        false
-                    } else {
-                        s.qty -= left;
-                        left = 0;
-                        true
-                    }
-                } else {
-                    true
-                }
-            });
-            left == 0
+            inv.remove_matching(|m| matches!(m, Matter::Terrain { .. }), n)
         }
     }
 }
@@ -91,7 +72,7 @@ pub fn apply_craft(world: &mut World, agent: Entity, recipe_id: &str) {
     world.resource_mut::<EventBuf>().push(GameEvent::Crafted {
         entity: eid,
         recipe: recipe.id.into(),
-        label: recipe.label.into(),
+        label: recipe.label(),
     });
 }
 
@@ -162,11 +143,7 @@ pub fn apply_plant(world: &mut World, agent: Entity, dx: i32, dy: i32) {
             .unwrap_or(false)
     });
     if !has {
-        let idn = {
-            let mut c = world.resource_mut::<IdCounter>();
-            c.0 += 1;
-            c.0
-        };
+        let idn = crate::world::next_id(world);
         world.spawn((
             Position { x: tx, y: ty },
             Glyph('T'),
@@ -244,7 +221,7 @@ pub fn list_crafts(world: &World, agent: Entity) -> Vec<(String, String)> {
     recipes()
         .iter()
         .filter(|r| can_craft(&view, r))
-        .map(|r| (r.id.to_string(), r.label.to_string()))
+        .map(|r| (r.id.to_string(), r.label()))
         .collect()
 }
 

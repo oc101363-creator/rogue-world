@@ -146,20 +146,8 @@ struct MessageSendResponse {
 
 fn validate_action(a: &Action) -> Result<(), &'static str> {
     match a {
-        Action::Move { dx, dy } => {
-            if dx.abs() + dy.abs() != 1 {
-                Err("move needs four-way unit step")
-            } else {
-                Ok(())
-            }
-        }
-        Action::Interact { dx, dy, .. } => {
-            if !(*dx == 0 && *dy == 0) && dx.abs() + dy.abs() != 1 {
-                Err("interact: underfoot or adjacent only")
-            } else {
-                Ok(())
-            }
-        }
+        Action::Move { dx, dy } => crate::actions::check_step(*dx, *dy, false),
+        Action::Interact { dx, dy, .. } => crate::actions::check_step(*dx, *dy, true),
         _ => Ok(()),
     }
 }
@@ -383,10 +371,9 @@ async fn api_actions() -> impl IntoResponse {
     Json(serde_json::json!({
         "ok": true,
         "actions": Action::catalog(),
-        "verbs": [
-            "dig","scoop","place","harvest","plant","build","deconstruct","craft",
-            "pickup","open","close","descend","ascend","attack"
-        ],
+        // generated from the verb registry — never hand-maintained
+        "verbs": crate::systems::verbs::catalog_verbs().iter().map(|(v, _)| v).collect::<Vec<_>>(),
+        "verb_docs": crate::systems::verbs::catalog_verbs().iter().map(|(v, d)| (v, d)).collect::<std::collections::HashMap<_,_>>(),
         "recipes": ask_kernel_recipes(),
         "api": {
             "register": "POST /api/register {name, purpose?} → {token, agent_id, x, y}",
@@ -410,7 +397,7 @@ fn ask_kernel_recipes() -> Vec<serde_json::Value> {
         .map(|r| {
             serde_json::json!({
                 "id": r.id,
-                "label": r.label,
+                "label": r.label(),
             })
         })
         .collect()

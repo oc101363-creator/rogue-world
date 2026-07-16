@@ -137,31 +137,41 @@ impl Inventory {
         true
     }
 
-    /// Remove qty of a resource kind (any matching stack).
-    pub fn remove_resource(&mut self, kind: ResourceKind, qty: u32) -> bool {
-        if self.qty_resource(kind) < qty {
+    /// Remove qty across all stacks matching `pred` (THE one consume loop —
+    /// resource/terrain/rock helpers are one-liners over this).
+    pub fn remove_matching(&mut self, pred: impl Fn(&Matter) -> bool, qty: u32) -> bool {
+        let have: u32 = self
+            .slots
+            .iter()
+            .filter(|s| pred(&s.matter))
+            .map(|s| s.qty)
+            .sum();
+        if have < qty {
             return false;
         }
         let mut left = qty;
         self.slots.retain_mut(|s| {
-            if left == 0 {
+            if left == 0 || !pred(&s.matter) {
                 return true;
             }
-            match &s.matter {
-                Matter::Resource { resource } if *resource == kind => {
-                    if s.qty <= left {
-                        left -= s.qty;
-                        false
-                    } else {
-                        s.qty -= left;
-                        left = 0;
-                        true
-                    }
-                }
-                _ => true,
+            if s.qty <= left {
+                left -= s.qty;
+                false
+            } else {
+                s.qty -= left;
+                left = 0;
+                true
             }
         });
         left == 0
+    }
+
+    /// Remove qty of a resource kind (any matching stack).
+    pub fn remove_resource(&mut self, kind: ResourceKind, qty: u32) -> bool {
+        self.remove_matching(
+            |m| matches!(m, Matter::Resource { resource } if *resource == kind),
+            qty,
+        )
     }
 
     /// Take one unit from slot index; returns the matter.
@@ -196,42 +206,6 @@ impl Inventory {
 
     pub fn remove_terrain(&mut self, feat: FeatId, qty: u32) -> bool {
         self.remove_matter(&Matter::Terrain { feat }, qty)
-    }
-
-    /// Remove qty of "rock-like" terrain (any matching granite family).
-    pub fn remove_any_rock(&mut self, qty: u32) -> bool {
-        use crate::sandbox::is_rock_feat;
-        let have: u32 = self
-            .slots
-            .iter()
-            .filter_map(|s| match &s.matter {
-                Matter::Terrain { feat } if is_rock_feat(*feat) => Some(s.qty),
-                _ => None,
-            })
-            .sum();
-        if have < qty {
-            return false;
-        }
-        let mut left = qty;
-        self.slots.retain_mut(|s| {
-            if left == 0 {
-                return true;
-            }
-            match &s.matter {
-                Matter::Terrain { feat } if is_rock_feat(*feat) => {
-                    if s.qty <= left {
-                        left -= s.qty;
-                        false
-                    } else {
-                        s.qty -= left;
-                        left = 0;
-                        true
-                    }
-                }
-                _ => true,
-            }
-        });
-        left == 0
     }
 
     pub fn as_view(&self) -> Vec<(Matter, u32)> {

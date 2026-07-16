@@ -4,7 +4,6 @@ use bevy_ecs::prelude::*;
 
 use crate::components::{Inventory, Matter, Position, ResourceKind};
 use crate::events::{EventBuf, GameEvent};
-use crate::f_info;
 use crate::grid::Grid;
 use crate::sandbox::{self, can_place_on};
 use crate::systems::stable_id;
@@ -181,25 +180,13 @@ pub fn apply_place(world: &mut World, agent: Entity, dx: i32, dy: i32, slot: Opt
         return;
     }
 
-    // If overwriting diggable/scoopable non-floor, return displaced into pack
-    let displaced = if cur != feat && (sandbox::is_diggable(cur) || sandbox::is_scoopable(cur)) {
-        // only auto-return if not plain floor (floor would flood pack)
-        let table = f_info::table();
-        if cur != crate::f_info::id::FLOOR && !table.walk(cur) {
-            Some(cur)
-        } else if matches!(
-            cur,
-            crate::f_info::id::DIRT
-                | crate::f_info::id::GRASS
-                | crate::f_info::id::TREE
-                | crate::f_info::id::RUBBLE
-                | crate::f_info::id::SHALLOW_WATER
-                | crate::f_info::id::DEEP_WATER
-        ) {
-            Some(cur)
-        } else {
-            None
-        }
+    // Overwriting diggable/scoopable ground returns the displaced block to
+    // the pack — except plain floor, which would flood the pack.
+    let displaced = if cur != feat
+        && cur != crate::f_info::id::FLOOR
+        && (sandbox::is_diggable(cur) || sandbox::is_scoopable(cur))
+    {
+        Some(cur)
     } else {
         None
     };

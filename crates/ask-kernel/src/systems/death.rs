@@ -10,7 +10,7 @@ use bevy_ecs::prelude::*;
 use crate::components::{Agent, Glyph, Health, Inventory, Item, Position, StableId};
 use crate::events::{EventBuf, GameEvent};
 use crate::systems::stable_id;
-use crate::world::{random_free_cell, IdCounter};
+use crate::world::random_free_cell;
 
 pub fn check_deaths_system(world: &mut World) {
     let dead: Vec<(Entity, Position)> = {
@@ -30,11 +30,7 @@ pub fn check_deaths_system(world: &mut World) {
             .map(|inv| inv.slots.clone())
             .unwrap_or_default();
         for s in stacks {
-            let id = {
-                let mut c = world.resource_mut::<IdCounter>();
-                c.0 += 1;
-                c.0
-            };
+            let id = crate::world::next_id(world);
             let glyph = s.matter.glyph();
             world.spawn((
                 Position { x: pos.x, y: pos.y },

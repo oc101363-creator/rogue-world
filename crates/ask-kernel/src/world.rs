@@ -294,9 +294,7 @@ impl KernelWorld {
     }
 
     fn next_id(&mut self) -> u64 {
-        let mut c = self.world.resource_mut::<IdCounter>();
-        c.0 += 1;
-        c.0
+        next_id(&mut self.world)
     }
 
     pub fn tick(&self) -> u64 {
@@ -333,6 +331,14 @@ impl KernelWorld {
         vision::update_view(&mut self.world);
         Some((id, x, y))
     }
+}
+
+/// Allocate the next stable id — THE one counter (systems: use this,
+/// never increment IdCounter inline).
+pub fn next_id(world: &mut World) -> u64 {
+    let mut c = world.resource_mut::<IdCounter>();
+    c.0 += 1;
+    c.0
 }
 
 /// Random free (buildable, agent-unoccupied) cell anywhere on the map.
