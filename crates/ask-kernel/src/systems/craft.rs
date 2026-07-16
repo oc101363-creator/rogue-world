@@ -6,7 +6,7 @@ use crate::components::{
     Building, Glyph, Inventory, Matter, Position, Resource, ResourceKind, StableId,
 };
 use crate::events::{EventBuf, GameEvent};
-use crate::f_info::{self, id};
+use crate::f_info::id;
 use crate::grid::Grid;
 use crate::sandbox::{
     self, can_craft, expand_output, need_required, pack_view, recipe_by_id, recipes, RecipeNeed,
@@ -230,8 +230,4 @@ pub fn can_plant(world: &World, agent: Entity) -> bool {
         .get::<Inventory>(agent)
         .map(|i| i.qty_terrain(id::TREE) > 0 || i.wood() > 0)
         .unwrap_or(false)
-}
-
-pub fn _feat_glyph(feat: u16) -> char {
-    f_info::table().glyph(feat)
 }

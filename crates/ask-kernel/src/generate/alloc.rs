@@ -160,11 +160,3 @@ pub fn fill_trap_room(
     };
 }
 
-/// Density helper used by callers with Depth resource.
-pub fn depth_amt(depth: u32) -> i32 {
-    (depth as i32 / 2).max(1) + 3
-}
-
-pub fn _use_depth_resource(d: &Depth) -> u32 {
-    d.0
-}

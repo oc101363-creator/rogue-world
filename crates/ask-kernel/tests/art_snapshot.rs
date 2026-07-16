@@ -42,7 +42,7 @@ fn feat_ids_masked_by_vision() {
         (g.width, g.height)
     };
     let dark = VisionMap::new(w, h);
-    let snap = build_viewer_snapshot_with(&mut kw.world, &[], &dark, Some(&[]), None, false);
+    let snap = build_viewer_snapshot_with(&mut kw.world, &[], &dark, Some(&[]), None);
     let feats = decode_feats(&snap);
     assert_eq!(feats.len(), (w * h) as usize);
     assert!(
@@ -63,6 +63,6 @@ fn feat_ids_unmasked_when_visible() {
     for f in vis.flags.iter_mut() {
         *f = ask_kernel::vision::F_VIEW | ask_kernel::vision::F_LITE;
     }
-    let snap = build_viewer_snapshot_with(&mut kw.world, &[], &vis, Some(&[]), None, false);
+    let snap = build_viewer_snapshot_with(&mut kw.world, &[], &vis, Some(&[]), None);
     assert_eq!(decode_feats(&snap), real);
 }

@@ -188,17 +188,17 @@ async function refreshMe() {
   const token = followToken || (tracked[0] && tracked[0].token);
   if (!token) return;
   try {
-    const r = await fetch("/api/me?token=" + encodeURIComponent(token));
+    const r = await fetch("/api/view?token=" + encodeURIComponent(token));
     if (!r.ok) return;
     const d = await r.json();
-    if (!d.ok) return;
+    if (!d.ok || !d.self) return;
     lastMe = d;
     const t = tracked.find((x) => x.token === token);
     if (t) {
-      t.agent_id = d.id;
-      if (d.name) t.name = d.name;
-      t.x = d.x;
-      t.y = d.y;
+      t.agent_id = d.self.id;
+      if (d.self.name) t.name = d.self.name;
+      t.x = d.self.x;
+      t.y = d.self.y;
     }
     saveTracked();
     renderTracker();
@@ -520,10 +520,6 @@ function setupThemeSelect() {
   applyThemeChrome();
 }
 
-function letterFg(letter) {
-  return theme.letters[letter] || theme.letters.w || "#ccc";
-}
-
 function syncViewSize() {
   const cs = cellSize();
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -646,16 +642,13 @@ function drawSnap(snap) {
 
   const x0 = cam.tx;
   const y0 = cam.ty;
-  const colorRows = snap.tile_colors || [];
   const visRows = snap.vision || [];
-  const feats = typeof decodeFeatIds === "function" ? decodeFeatIds(snap.feat_ids) : null;
-  const useIdentity = !!(feats && typeof artCatalog !== "undefined" && artCatalog);
+  // identity-first only: server always sends feat_ids + art catalog
+  const feats = decodeFeatIds(snap.feat_ids);
 
   d.clear();
   for (let vy = 0; vy < viewRows; vy++) {
     const wy = y0 + vy;
-    const row = snap.tiles[wy] || "";
-    const colorRow = colorRows[wy] || "";
     const visRow = visRows[wy] || "";
     for (let vx = 0; vx < viewCols; vx++) {
       const wx = x0 + vx;
@@ -671,7 +664,7 @@ function drawSnap(snap) {
       let ch;
       let fg;
       let bg;
-      if (useIdentity) {
+      {
         const fid = feats[wy * mapW + wx];
         const look = lookForFeat(fid);
         ch = look.glyph || "?";
@@ -724,11 +717,6 @@ function drawSnap(snap) {
           default:
             bg = theme.void;
         }
-      } else {
-        ch = row[wx] || " ";
-        const letter = colorRow[wx] || "w";
-        fg = letterFg(letter);
-        bg = theme.cellBg ? theme.cellBg(letter, ch) : theme.void;
       }
       if (vch === "m") {
         const f = theme.memoryFactor || 0.4;
@@ -1020,7 +1008,7 @@ function applySnapshot(snap) {
   const hp = agent && agent.hp != null ? ` hp=${agent.hp}/${agent.max_hp ?? "?"}` : "";
   const pack =
     agent && agent.items && agent.items.length ? ` pack=${agent.items.length}` : "";
-  const interactionsSrc = lastMe && lastMe.interactions ? lastMe.interactions : snap.interactions || [];
+  const interactionsSrc = lastMe && lastMe.can && lastMe.can.interactions ? lastMe.can.interactions : snap.interactions || [];
   const acts = interactionsSrc
     .slice(0, 3)
     .map((i) => i.verb)
@@ -1072,7 +1060,7 @@ function sendAction(action) {
     ws.send(JSON.stringify(body));
     return;
   }
-  fetch("/api/action", {
+  fetch("/api/act", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -1430,7 +1418,7 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "y" || e.key === "Y") {
     e.preventDefault();
     // craft first available recipe from focused agent's interactions
-    const interactions = (lastMe && lastMe.interactions) || (lastSnap && lastSnap.interactions) || [];
+    const interactions = (lastMe && lastMe.can && lastMe.can.interactions) || (lastSnap && lastSnap.interactions) || [];
     const craft = interactions.find((i) => i.verb === "craft");
     if (craft && craft.recipe) {
       sendAction({ type: "interact", dx: 0, dy: 0, verb: "craft", recipe: craft.recipe });

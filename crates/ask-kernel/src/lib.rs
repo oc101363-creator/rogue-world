@@ -14,7 +14,6 @@ pub mod config;
 pub mod describe;
 pub mod events;
 pub mod f_info;
-pub mod gateway;
 pub mod generate; // generate/mod.rs
 pub mod grid;
 pub mod inspect;

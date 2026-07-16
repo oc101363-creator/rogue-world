@@ -31,12 +31,11 @@ struct AgentRecord {
     alive: bool,
 }
 
-#[derive(Clone, Debug)]
 pub struct PendingSpawn {
     pub name: String,
     pub purpose: String,
-    /// Filled by sim thread after spawn.
-    pub result: Arc<Mutex<Option<RegisterResult>>>,
+    /// Fired by the sim thread once the spawn resolves (one-shot).
+    pub result: tokio::sync::oneshot::Sender<RegisterResult>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -105,20 +104,20 @@ impl AgentRegistry {
         }
     }
 
-    /// Queue a spawn; returns a handle that fills when sim processes it.
+    /// Queue a spawn; the receiver resolves when the sim thread processes it.
     pub fn request_register(
         &self,
         name: String,
         purpose: String,
-    ) -> Arc<Mutex<Option<RegisterResult>>> {
-        let result = Arc::new(Mutex::new(None));
+    ) -> tokio::sync::oneshot::Receiver<RegisterResult> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
         let mut g = self.inner.lock().expect("auth");
         g.pending_spawns.push(PendingSpawn {
             name,
             purpose,
-            result: result.clone(),
+            result: tx,
         });
-        result
+        rx
     }
 
     pub fn drain_spawns(&self) -> Vec<PendingSpawn> {

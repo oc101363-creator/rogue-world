@@ -14,7 +14,6 @@ use crate::events::GameEvent;
 use crate::f_info;
 use crate::grid::Grid;
 use crate::systems::interact;
-use crate::view;
 use crate::vision::VisionMap;
 use crate::world::TickCounter;
 
@@ -37,8 +36,6 @@ pub struct ViewerSnapshot {
     pub width: i32,
     pub height: i32,
     pub tiles: Vec<String>,
-    /// Frog f_info color letters per cell (same shape as `tiles`) — legacy client path.
-    pub tile_colors: Vec<String>,
     /// Per-cell visibility: ' ' unknown, 'm' memory (MARK only), 'v' visible (VIEW+lit).
     pub vision: Vec<String>,
     /// Identity grid for FS-HDG / material art (masked: unseen cells are feat 0).
@@ -48,7 +45,6 @@ pub struct ViewerSnapshot {
     pub entities: Vec<ViewerEntity>,
     /// Interactions available to focused agent (underfoot + neighbors).
     pub interactions: Vec<Interaction>,
-    pub map: String,
     pub focused_agent_id: Option<u64>,
     pub recent_events: Vec<GameEvent>,
 }
@@ -62,7 +58,7 @@ pub fn build_viewer_snapshot(world: &mut World, recent_events: &[GameEvent]) -> 
             let g = world.resource::<Grid>();
             VisionMap::new(g.width, g.height)
         });
-    build_viewer_snapshot_with(world, recent_events, &vis, None, None, true)
+    build_viewer_snapshot_with(world, recent_events, &vis, None, None)
 }
 
 /// Build a snapshot for a specific vision map and optional agent allow-list.
@@ -72,21 +68,17 @@ pub fn build_viewer_snapshot(world: &mut World, recent_events: &[GameEvent]) -> 
 ///   un-tracked agents out of a player's view.
 /// * `focus_agent_id` — which agent's interactions are returned.  If `None`,
 ///   the first allowed agent is used.
-/// * `include_map` — if true, include the full ASCII `map` string (internal/
-///   terminal only).  Web snapshots should pass `false` to avoid leaking unseen
-///   terrain.
 pub fn build_viewer_snapshot_with(
     world: &mut World,
     recent_events: &[GameEvent],
     vis: &VisionMap,
     allowed_agents: Option<&[u64]>,
     focus_agent_id: Option<u64>,
-    include_map: bool,
 ) -> ViewerSnapshot {
     let tick = world.resource::<TickCounter>().0;
     let table = f_info::table();
     let catalog_version = art::catalog().catalog_version;
-    let (width, height, tiles, tile_colors, vision_rows, feat_ids) = {
+    let (width, height, tiles, vision_rows, feat_ids) = {
         let grid = world.resource::<Grid>();
         let w = grid.width;
         let h = grid.height;
@@ -108,11 +100,9 @@ pub fn build_viewer_snapshot_with(
             data: art::encode_feat_ids_b64(&masked),
         };
         let mut tiles = Vec::with_capacity(h as usize);
-        let mut tile_colors = Vec::with_capacity(h as usize);
         let mut vision_rows = Vec::with_capacity(h as usize);
         for y in 0..h {
             let mut row = String::with_capacity(w as usize);
-            let mut colors = String::with_capacity(w as usize);
             let mut vrow = String::with_capacity(w as usize);
             for x in 0..w {
                 let class = vis.display_class(x, y);
@@ -125,25 +115,21 @@ pub fn build_viewer_snapshot_with(
                     0 => {
                         // unexplored — darkness glyph
                         row.push(' ');
-                        colors.push('D');
                     }
                     1 | 2 => {
                         let id = grid.cells[(y * w + x) as usize];
                         let info = table.get(id);
                         row.push(info.map(|f| f.glyph).unwrap_or('?'));
-                        colors.push(info.map(|f| f.color).unwrap_or('w'));
                     }
                     _ => {
                         row.push(' ');
-                        colors.push('D');
                     }
                 }
             }
             tiles.push(row);
-            tile_colors.push(colors);
             vision_rows.push(vrow);
         }
-        (w, h, tiles, tile_colors, vision_rows, feat_ids)
+        (w, h, tiles, vision_rows, feat_ids)
     };
 
     let can_see = |x: i32, y: i32| -> bool { vis.is_visible(x, y) };
@@ -194,25 +180,17 @@ pub fn build_viewer_snapshot_with(
             .unwrap_or_default()
     };
 
-    let map = if include_map {
-        view::render(world)
-    } else {
-        String::new()
-    };
-
     ViewerSnapshot {
         r#type: "snapshot",
         tick,
         width,
         height,
         tiles,
-        tile_colors,
         vision: vision_rows,
         feat_ids,
         catalog_version,
         entities,
         interactions,
-        map,
         focused_agent_id,
         recent_events: recent_events.to_vec(),
     }
