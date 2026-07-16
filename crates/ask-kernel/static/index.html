@@ -59,6 +59,15 @@
     <div id="selector-panel">
       <div class="title">+ SELECTOR +</div>
       <div class="muted" id="sel-count">0 agents selected</div>
+      <div class="muted">LMB drag box · double-click all visible · MMB/RMB pan</div>
+      <div class="row">
+        <button type="button" id="sel-all-vis" class="term-btn" title="Select all agents currently in FOV">
+          [ ALL VIS ]
+        </button>
+        <button type="button" id="sel-clear" class="term-btn secondary" title="Clear selection">
+          [ CLEAR ]
+        </button>
+      </div>
       <div class="row">
         <select id="sel-preset" class="term-input"></select>
         <button type="button" id="sel-preset-del" class="term-btn secondary" title="Delete preset">[x]</button>
@@ -84,7 +93,7 @@
     <div id="log" aria-live="polite"></div>
 
     <div id="help">
-      KEYS: arrows move · g interact · t dig · u scoop · v place · n plant · b build · x decon · y craft · m mock · SPACE follow · click inspect · right-click cell · Shift-drag select · Ctrl-click toggle
+      KEYS: arrows move · g interact · LMB-drag box select · double-click all visible · MMB/RMB pan · right-click inspect · Ctrl/Shift add · SPACE follow · m mock
     </div>
 
     <div id="inspect-popup" class="term-panel">
@@ -95,7 +104,7 @@
       <div id="inspect-body"></div>
     </div>
 
-    <script src="/static/themes.js?v=inspect"></script>
-    <script src="/static/app.js?v=inspect"></script>
+    <script src="/static/themes.js?v=rts-select"></script>
+    <script src="/static/app.js?v=rts-select"></script>
   </body>
 </html>

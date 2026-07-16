@@ -25,6 +25,8 @@ const elInspectClose = document.getElementById("inspect-close");
 const elSelectBox = document.getElementById("select-box");
 
 const elSelCount = document.getElementById("sel-count");
+const elSelAllVis = document.getElementById("sel-all-vis");
+const elSelClear = document.getElementById("sel-clear");
 const elSelPreset = document.getElementById("sel-preset");
 const elSelPresetDel = document.getElementById("sel-preset-del");
 const elSelPresetSave = document.getElementById("sel-preset-save");
@@ -252,14 +254,53 @@ function cellSize() {
 function worldAtScreen(clientX, clientY) {
   const mapRect = elMap.getBoundingClientRect();
   const cs = cellSize();
-  const sx = clientX - mapRect.left;
-  const sy = clientY - mapRect.top;
+  const mx = clientX - mapRect.left;
+  const my = clientY - mapRect.top;
   return {
-    wx: Math.floor(cam.tx + sx / cs),
-    wy: Math.floor(cam.ty + sy / cs),
-    sx,
-    sy,
+    wx: Math.floor(cam.tx + mx / cs),
+    wy: Math.floor(cam.ty + my / cs),
+    mx,
+    my,
   };
+}
+
+function viewportAtScreen(clientX, clientY) {
+  const rect = elViewport.getBoundingClientRect();
+  return {
+    sx: clientX - rect.left,
+    sy: clientY - rect.top,
+  };
+}
+
+function agentsInWorldRect(x0, y0, x1, y1) {
+  const loX = Math.min(x0, x1);
+  const hiX = Math.max(x0, x1);
+  const loY = Math.min(y0, y1);
+  const hiY = Math.max(y0, y1);
+  return (lastSnap ? lastSnap.entities : [])
+    .filter(
+      (en) =>
+        en.kind === "agent" &&
+        en.x >= loX &&
+        en.x <= hiX &&
+        en.y >= loY &&
+        en.y <= hiY,
+    )
+    .map((en) => en.id);
+}
+
+function visibleAgentIds() {
+  if (!lastSnap) return [];
+  const visRows = lastSnap.vision || [];
+  return (lastSnap.entities || [])
+    .filter((en) => {
+      if (en.kind !== "agent") return false;
+      const row = visRows[en.y] || "";
+      const ch = row[en.x] || " ";
+      // currently lit FOV only (not fog-of-war memory)
+      return ch === "v";
+    })
+    .map((en) => en.id);
 }
 
 function updateSelectionHighlight() {
@@ -343,6 +384,12 @@ function setSelectedAgents(ids) {
   updateSelectionHighlight();
 }
 
+function addSelectedAgents(ids) {
+  for (const id of ids) selectedAgentIds.add(id);
+  updateSelectionPanel();
+  updateSelectionHighlight();
+}
+
 function toggleSelectAgent(id) {
   if (selectedAgentIds.has(id)) {
     selectedAgentIds.delete(id);
@@ -353,20 +400,44 @@ function toggleSelectAgent(id) {
   updateSelectionHighlight();
 }
 
+function selectAllVisibleAgents() {
+  const ids = visibleAgentIds();
+  setSelectedAgents(ids);
+  pushLog(`SELECTED ${ids.length} visible agents`);
+}
+
+function cancelBoxSelect() {
+  selecting = false;
+  selectStart = null;
+  if (elSelectBox) elSelectBox.classList.remove("active");
+}
+
 function startBoxSelect(e) {
-  const { wx, wy, sx, sy } = worldAtScreen(e.clientX, e.clientY);
+  const { wx, wy } = worldAtScreen(e.clientX, e.clientY);
+  const { sx, sy } = viewportAtScreen(e.clientX, e.clientY);
   selecting = true;
-  selectStart = { sx, sy, wx, wy };
-  elSelectBox.style.left = sx + "px";
-  elSelectBox.style.top = sy + "px";
-  elSelectBox.style.width = "0px";
-  elSelectBox.style.height = "0px";
-  elSelectBox.classList.add("active");
+  selectStart = {
+    sx,
+    sy,
+    wx,
+    wy,
+    clientX: e.clientX,
+    clientY: e.clientY,
+    ctrlKey: e.ctrlKey || e.metaKey,
+    add: e.shiftKey || e.ctrlKey || e.metaKey,
+  };
+  if (elSelectBox) {
+    elSelectBox.style.left = sx + "px";
+    elSelectBox.style.top = sy + "px";
+    elSelectBox.style.width = "0px";
+    elSelectBox.style.height = "0px";
+    elSelectBox.classList.add("active");
+  }
 }
 
 function updateBoxSelect(e) {
-  if (!selecting || !selectStart) return;
-  const { sx, sy } = worldAtScreen(e.clientX, e.clientY);
+  if (!selecting || !selectStart || !elSelectBox) return;
+  const { sx, sy } = viewportAtScreen(e.clientX, e.clientY);
   const left = Math.min(selectStart.sx, sx);
   const top = Math.min(selectStart.sy, sy);
   const width = Math.abs(selectStart.sx - sx);
@@ -379,28 +450,40 @@ function updateBoxSelect(e) {
 
 function finishBoxSelect(e) {
   if (!selecting || !selectStart) return;
+  const start = selectStart;
   selecting = false;
-  elSelectBox.classList.remove("active");
+  selectStart = null;
+  if (elSelectBox) elSelectBox.classList.remove("active");
 
   const { wx, wy } = worldAtScreen(e.clientX, e.clientY);
-  const x0 = Math.min(selectStart.wx, wx);
-  const x1 = Math.max(selectStart.wx, wx);
-  const y0 = Math.min(selectStart.wy, wy);
-  const y1 = Math.max(selectStart.wy, wy);
+  const pixelDx = Math.abs(e.clientX - start.clientX);
+  const pixelDy = Math.abs(e.clientY - start.clientY);
+  const isClick = pixelDx < 6 && pixelDy < 6;
 
-  const ids = (lastSnap ? lastSnap.entities : [])
-    .filter(
-      (en) =>
-        en.kind === "agent" &&
-        en.x >= x0 &&
-        en.x <= x1 &&
-        en.y >= y0 &&
-        en.y <= y1,
-    )
-    .map((en) => en.id);
+  if (isClick) {
+    // Classic RTS click: select unit under cursor, or clear if empty.
+    const hit = (lastSnap ? lastSnap.entities : []).find(
+      (en) => en.kind === "agent" && en.x === wx && en.y === wy,
+    );
+    if (hit) {
+      if (start.ctrlKey) {
+        toggleSelectAgent(hit.id);
+      } else if (start.add && !start.ctrlKey) {
+        // Shift-click adds without toggle
+        addSelectedAgents([hit.id]);
+      } else {
+        setSelectedAgents([hit.id]);
+      }
+    } else if (!start.add && !start.ctrlKey) {
+      setSelectedAgents([]);
+    }
+    pushLog(`SELECTED ${selectedAgentIds.size} agents`);
+    return;
+  }
 
-  if (e.ctrlKey) {
-    for (const id of ids) toggleSelectAgent(id);
+  const ids = agentsInWorldRect(start.wx, start.wy, wx, wy);
+  if (start.add || start.ctrlKey) {
+    addSelectedAgents(ids);
   } else {
     setSelectedAgents(ids);
   }
@@ -787,17 +870,6 @@ function handleInspectClick(e, button) {
   }
 }
 
-function handleSelectClick(e) {
-  if (!lastSnap || mapW <= 0 || mapH <= 0) return;
-  const { wx, wy } = worldAtScreen(e.clientX, e.clientY);
-  const ent = (lastSnap.entities || []).find(
-    (en) => en.kind === "agent" && en.x === wx && en.y === wy,
-  );
-  if (ent) {
-    toggleSelectAgent(ent.id);
-  }
-}
-
 function pushLog(msg) {
   if (!elLog) return;
   const line = document.createElement("div");
@@ -984,12 +1056,20 @@ function dirFromKey(e) {
   }
 }
 
-let dragging = false;
-let dragLast = null;
-let accumX = 0;
-let accumY = 0;
-let dragPixelDist = 0;
+// Mouse model (classic RTS):
+//   LMB drag  → box-select agents (no modifier)
+//   LMB click → select agent under cursor / clear if empty
+//   Shift/Ctrl+LMB → add to selection (Ctrl toggles on click)
+//   MMB / RMB drag → pan camera
+//   RMB short click → inspect cell/entity
+//   Double-click agent → select all currently visible agents
+let panning = false;
+let panLast = null;
+let panAccumX = 0;
+let panAccumY = 0;
+let panPixelDist = 0;
 let mouseDownAt = null;
+let lastClickAt = null; // for double-click mass-select
 
 elViewport.addEventListener(
   "wheel",
@@ -1003,29 +1083,34 @@ elViewport.addEventListener(
 
 elViewport.addEventListener("mousedown", (e) => {
   if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
+  e.preventDefault();
 
-  if (e.shiftKey && e.button === 0) {
-    e.preventDefault();
-    startBoxSelect(e);
-    return;
-  }
-
-  dragging = true;
-  dragLast = { x: e.clientX, y: e.clientY };
-  accumX = 0;
-  accumY = 0;
-  dragPixelDist = 0;
   mouseDownAt = {
     x: e.clientX,
     y: e.clientY,
     t: performance.now(),
     button: e.button,
     shiftKey: e.shiftKey,
-    ctrlKey: e.ctrlKey,
+    ctrlKey: e.ctrlKey || e.metaKey,
   };
-  elViewport.classList.add("dragging");
-  cam.follow = false;
-  e.preventDefault();
+
+  // Middle / right button: camera pan
+  if (e.button === 1 || e.button === 2) {
+    panning = true;
+    panLast = { x: e.clientX, y: e.clientY };
+    panAccumX = 0;
+    panAccumY = 0;
+    panPixelDist = 0;
+    elViewport.classList.add("dragging");
+    cam.follow = false;
+    return;
+  }
+
+  // Left button: classic RTS box select (no Shift required)
+  if (e.button === 0) {
+    cam.follow = false;
+    startBoxSelect(e);
+  }
 });
 
 window.addEventListener("mousemove", (e) => {
@@ -1033,29 +1118,29 @@ window.addEventListener("mousemove", (e) => {
     updateBoxSelect(e);
     return;
   }
-  if (!dragging || !dragLast) return;
-  const dx = e.clientX - dragLast.x;
-  const dy = e.clientY - dragLast.y;
-  dragLast = { x: e.clientX, y: e.clientY };
-  dragPixelDist += Math.abs(dx) + Math.abs(dy);
-  accumX += dx;
-  accumY += dy;
+  if (!panning || !panLast) return;
+  const dx = e.clientX - panLast.x;
+  const dy = e.clientY - panLast.y;
+  panLast = { x: e.clientX, y: e.clientY };
+  panPixelDist += Math.abs(dx) + Math.abs(dy);
+  panAccumX += dx;
+  panAccumY += dy;
   const cs = cellSize();
-  while (accumX >= cs) {
+  while (panAccumX >= cs) {
     cam.tx -= 1;
-    accumX -= cs;
+    panAccumX -= cs;
   }
-  while (accumX <= -cs) {
+  while (panAccumX <= -cs) {
     cam.tx += 1;
-    accumX += cs;
+    panAccumX += cs;
   }
-  while (accumY >= cs) {
+  while (panAccumY >= cs) {
     cam.ty -= 1;
-    accumY -= cs;
+    panAccumY -= cs;
   }
-  while (accumY <= -cs) {
+  while (panAccumY <= -cs) {
     cam.ty += 1;
-    accumY += cs;
+    panAccumY += cs;
   }
   clampCamera();
   if (lastSnap) drawSnap(lastSnap);
@@ -1063,26 +1148,62 @@ window.addEventListener("mousemove", (e) => {
 });
 
 window.addEventListener("mouseup", (e) => {
-  if (selecting) {
+  if (selecting && e.button === 0) {
+    // Double-click agent → mass-select all currently visible agents
+    const { wx, wy } = worldAtScreen(e.clientX, e.clientY);
+    const hit = (lastSnap ? lastSnap.entities : []).find(
+      (en) => en.kind === "agent" && en.x === wx && en.y === wy,
+    );
+    const now = performance.now();
+    const isDouble =
+      hit &&
+      lastClickAt &&
+      now - lastClickAt.t < 320 &&
+      Math.abs(e.clientX - lastClickAt.x) < 8 &&
+      Math.abs(e.clientY - lastClickAt.y) < 8 &&
+      Math.abs(e.clientX - (mouseDownAt ? mouseDownAt.x : e.clientX)) < 6 &&
+      Math.abs(e.clientY - (mouseDownAt ? mouseDownAt.y : e.clientY)) < 6;
+
+    if (isDouble) {
+      cancelBoxSelect();
+      selectAllVisibleAgents();
+      lastClickAt = null;
+      mouseDownAt = null;
+      return;
+    }
+
     finishBoxSelect(e);
+    if (hit) {
+      lastClickAt = { x: e.clientX, y: e.clientY, t: now };
+    } else {
+      lastClickAt = null;
+    }
+    mouseDownAt = null;
     return;
   }
-  if (!dragging) return;
-  dragging = false;
-  dragLast = null;
-  elViewport.classList.remove("dragging");
-  const down = mouseDownAt;
-  mouseDownAt = null;
-  if (down) {
-    const dt = performance.now() - down.t;
-    if (dragPixelDist < 6 && dt < 450) {
-      if (down.ctrlKey) {
-        handleSelectClick(e);
-      } else {
-        handleInspectClick(e, down.button);
-      }
+
+  if (panning) {
+    panning = false;
+    panLast = null;
+    elViewport.classList.remove("dragging");
+    const down = mouseDownAt;
+    mouseDownAt = null;
+    // Short right-click without pan movement → inspect
+    if (down && down.button === 2 && panPixelDist < 6) {
+      handleInspectClick(e, 2);
     }
+    return;
   }
+
+  mouseDownAt = null;
+});
+
+window.addEventListener("blur", () => {
+  cancelBoxSelect();
+  panning = false;
+  panLast = null;
+  elViewport.classList.remove("dragging");
+  mouseDownAt = null;
 });
 
 elViewport.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -1093,13 +1214,26 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
-  if (
-    e.key === "Escape" &&
-    elInspectPopup &&
-    elInspectPopup.classList.contains("visible")
-  ) {
-    hideInspectPopup();
+  if (e.key === "Escape") {
     e.preventDefault();
+    if (elInspectPopup && elInspectPopup.classList.contains("visible")) {
+      hideInspectPopup();
+      return;
+    }
+    if (selecting) {
+      cancelBoxSelect();
+      return;
+    }
+    if (selectedAgentIds.size) {
+      setSelectedAgents([]);
+      pushLog("CLEARED selection");
+    }
+    return;
+  }
+  // Ctrl/Cmd+A → select all agents currently in FOV
+  if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
+    e.preventDefault();
+    selectAllVisibleAgents();
     return;
   }
   if (e.code === "Space") {
@@ -1409,6 +1543,17 @@ if (elSelPresetDel) {
 if (elSelSend) {
   elSelSend.addEventListener("click", () => {
     sendPromptToSelected(elSelText ? elSelText.value : "");
+  });
+}
+if (elSelAllVis) {
+  elSelAllVis.addEventListener("click", () => {
+    selectAllVisibleAgents();
+  });
+}
+if (elSelClear) {
+  elSelClear.addEventListener("click", () => {
+    setSelectedAgents([]);
+    pushLog("CLEARED selection");
   });
 }
 
