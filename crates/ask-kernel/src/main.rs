@@ -88,16 +88,8 @@ fn main() {
     let mut cfg = Config::default();
     cfg.seed = seed;
 
-    if serve_mode {
-        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-        if let Err(e) = rt.block_on(serve::run_server(port, tick_ms, cfg)) {
-            eprintln!("serve failed: {e:#}");
-            process::exit(4);
-        }
-        return;
-    }
-
-    let kernel = if let Some(path) = &load_path {
+    // --load works in every mode (CLI steps/watch AND serve)
+    let load_kernel = |path: &str| -> KernelWorld {
         match persist::load_from_path(path) {
             Ok(k) => {
                 eprintln!("loaded {path}");
@@ -108,8 +100,24 @@ fn main() {
                 process::exit(2);
             }
         }
-    } else {
-        KernelWorld::new(&cfg)
+    };
+
+    if serve_mode {
+        let kernel = match &load_path {
+            Some(p) => load_kernel(p),
+            None => KernelWorld::new(&cfg),
+        };
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        if let Err(e) = rt.block_on(serve::run_server(port, tick_ms, kernel, save_path)) {
+            eprintln!("serve failed: {e:#}");
+            process::exit(4);
+        }
+        return;
+    }
+
+    let kernel = match &load_path {
+        Some(p) => load_kernel(p),
+        None => KernelWorld::new(&cfg),
     };
 
     let mut sim = Sim::new(kernel);

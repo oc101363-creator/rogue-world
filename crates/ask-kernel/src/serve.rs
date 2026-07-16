@@ -29,7 +29,6 @@ use tower_http::services::{ServeDir, ServeFile};
 use crate::actions::Action;
 use crate::auth::{AgentRegistry, RegisterResult};
 use crate::components::{Agent, Position, StableId};
-use crate::config::Config;
 use crate::events::EventBuf;
 use crate::player::{BusPolicy, PlayerActionBus};
 use crate::tick::Sim;
@@ -156,10 +155,19 @@ fn validate_action(a: &Action) -> Result<(), &'static str> {
     }
 }
 
-pub async fn run_server(port: u16, tick_ms: u64, cfg: Config) -> Result<()> {
-    let kernel = KernelWorld::new(&cfg);
+pub async fn run_server(
+    port: u16,
+    tick_ms: u64,
+    kernel: KernelWorld,
+    save_path: Option<String>,
+) -> Result<()> {
+    let seed = kernel
+        .world
+        .get_resource::<crate::world::WorldSeed>()
+        .map(|s| s.0)
+        .unwrap_or(1);
     let bus = PlayerActionBus::new();
-    let reg = AgentRegistry::new(cfg.seed);
+    let reg = AgentRegistry::new(seed);
     let sim = Arc::new(Mutex::new(Sim::with_policy(
         kernel,
         Box::new(BusPolicy::new(bus.clone(), true)),
@@ -169,6 +177,7 @@ pub async fn run_server(port: u16, tick_ms: u64, cfg: Config) -> Result<()> {
     let sim_thread = sim.clone();
     let recent_thread = recent_events.clone();
     let reg_thread = reg.clone();
+    let save_thread = save_path.clone();
     std::thread::spawn(move || {
         let mut recent: Vec<crate::events::GameEvent> = Vec::new();
         loop {
@@ -228,6 +237,15 @@ pub async fn run_server(port: u16, tick_ms: u64, cfg: Config) -> Result<()> {
                 if recent.len() > 40 {
                     let n = recent.len() - 40;
                     recent.drain(0..n);
+                }
+
+                // periodic autosave (every 100 ticks) when --save is given
+                if let Some(path) = &save_thread {
+                    if sim.kernel.tick() % 100 == 0 {
+                        if let Err(e) = crate::persist::save_to_path(&mut sim.kernel.world, path) {
+                            eprintln!("[ask] autosave failed: {e:#}");
+                        }
+                    }
                 }
             }
             *recent_thread.blocking_lock() = recent.clone();
