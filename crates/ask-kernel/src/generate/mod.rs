@@ -356,13 +356,13 @@ fn open_rock_pockets(cave: &mut Cave, rng: &mut Rng) {
 /// Uses seed blobs + soft growth so regions read as patches, not salt-and-pepper.
 fn place_biomes(feats: &mut [u16], w: i32, h: i32, rng: &mut Rng) {
     let area = w * h;
-    // A handful of large fields scaled to map size
-    let n_fields = (area / 12_000).clamp(6, 18);
+    // Fewer biome fields so most of the map stays open FLOOR
+    let n_fields = (area / 22_000).clamp(3, 8);
     for _ in 0..n_fields {
         let cx = rng.rand_range(w / 10, w - w / 10);
         let cy = rng.rand_range(h / 10, h - h / 10);
-        let rad_x = rng.rand_range(14, 36);
-        let rad_y = rng.rand_range(10, 28);
+        let rad_x = rng.rand_range(10, 22);
+        let rad_y = rng.rand_range(8, 16);
         let biome = if rng.percent(55) {
             id::GRASS
         } else {
@@ -480,17 +480,14 @@ fn paint_mountain_blob(
             if d < 0.5 {
                 feats[i] = id::MOUNTAIN;
             } else if d < 0.8 {
-                feats[i] = if rng.percent(85) {
+                feats[i] = if rng.percent(90) {
                     id::MOUNTAIN
                 } else {
                     id::GRANITE
                 };
-            } else if rng.percent(75) {
-                feats[i] = if rng.percent(35) {
-                    id::RUBBLE
-                } else {
-                    id::GRANITE
-                };
+            } else if rng.percent(70) {
+                // rim is granite, not rubble freckles
+                feats[i] = id::GRANITE;
             }
         }
     }
@@ -646,33 +643,8 @@ fn organicize_rock(cave: &mut Cave, rng: &mut Rng) {
         }
     }
 
-    // 3) A few larger rock outcrops only — avoid salt-and-pepper micro piles
-    for _ in 0..(cave.w * cave.h / 2500).max(4).min(12) {
-        let cx = rng.rand_range(4, cave.w - 4);
-        let cy = rng.rand_range(4, cave.h - 4);
-        if !is_open(cave.get(cx, cy)) {
-            continue;
-        }
-        let rad = rng.rand_range(3, 7);
-        for yy in (cy - rad)..=(cy + rad) {
-            for xx in (cx - rad)..=(cx + rad) {
-                if !cave.in_bounds(xx, yy) {
-                    continue;
-                }
-                let d = (xx - cx) * (xx - cx) + (yy - cy) * (yy - cy);
-                if d > rad * rad {
-                    continue;
-                }
-                if matches!(cave.get(xx, yy), Cell::Room) {
-                    continue; // leave room interiors alone
-                }
-                if is_open(cave.get(xx, yy)) && rng.percent(if d < rad * rad / 2 { 85 } else { 55 })
-                {
-                    cave.set(xx, yy, Cell::Solid);
-                }
-            }
-        }
-    }
+    // 3) No scattered open-area rock piles — keep large open floors clean.
+    // Mountains/rivers provide the big readable masses instead.
 }
 
 fn bake_base(cave: &Cave, rng: &mut Rng) -> Vec<u16> {
@@ -686,15 +658,15 @@ fn bake_base(cave: &Cave, rng: &mut Rng) -> Vec<u16> {
                 // Keep room/tunnel floors uniform; contiguous grass/dirt come from place_biomes.
                 Cell::Room => id::FLOOR,
                 Cell::Tunnel => id::FLOOR,
-                // Outer treated as piled rock (same family as solid), not a distinct wireframe
+                // Mostly clean granite walls — veins/rubble are sparse accents only
                 Cell::Outer | Cell::Inner | Cell::Solid => match rng.randint0(100) {
-                    0..=4 => id::MAGMA_VEIN,
-                    5..=8 => id::QUARTZ_VEIN,
-                    9..=12 => id::RUBBLE,
-                    13 => id::MAGMA_TREASURE,
-                    14 => id::QUARTZ_TREASURE,
-                    15..=18 => id::GRANITE_SOLID,
-                    19..=22 => id::GRANITE_INNER,
+                    0..=1 => id::MAGMA_VEIN,
+                    2..=3 => id::QUARTZ_VEIN,
+                    4 => id::RUBBLE,
+                    5 => id::MAGMA_TREASURE,
+                    6 => id::QUARTZ_TREASURE,
+                    7..=9 => id::GRANITE_SOLID,
+                    10..=12 => id::GRANITE_INNER,
                     _ => id::GRANITE,
                 },
             };
@@ -770,7 +742,8 @@ fn place_stairs(feats: &mut [u16], w: i32, rooms: &[Room]) {
 /// Large lakes in open areas (not tiny room puddles).
 fn place_lakes(feats: &mut [u16], w: i32, h: i32, rooms: &[Room], rng: &mut Rng) {
     let area = w * h;
-    let n = (area / 14_000).clamp(3, 8);
+    // Fewer lakes leave more open floor between landmarks
+    let n = (area / 22_000).clamp(2, 5);
     for li in 0..n {
         // Prefer water lakes; lava is rare so it doesn't freckle the map
         let kind = if rng.percent(82) {
@@ -950,10 +923,10 @@ fn place_rivers(feats: &mut [u16], w: i32, h: i32, rng: &mut Rng) {
     }
 }
 
-/// Dense forest patches — few large woods, high fill.
+/// Dense forest patches — few large woods, high fill; leave open plains elsewhere.
 fn place_tree_patches(feats: &mut [u16], w: i32, h: i32, rng: &mut Rng) {
     let area = w * h;
-    let patches = (area / 18_000).clamp(3, 8);
+    let patches = (area / 28_000).clamp(2, 5);
     for _ in 0..patches {
         let cx = rng.rand_range(w / 10, w - w / 10);
         let cy = rng.rand_range(h / 10, h - h / 10);
