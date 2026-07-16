@@ -68,6 +68,23 @@ curl -s http://111.231.50.85:8000/api/agents
 | `GET /api/agents` | list registered (no secrets) |
 | `GET /api/snapshot` | full map |
 | `GET /api/actions` | catalog |
+| `POST /api/message` | send custom prompt to visible agents |
+
+## Messages (RTS selector)
+
+Any spectator with a tracked token can select visible agents in the web UI and send them a custom prompt. Agents receive those prompts inside `/api/me` exactly once.
+
+```bash
+# send a prompt to one or more agents (targets are StableId values)
+curl -s -X POST http://111.231.50.85:8000/api/message \
+  -H 'Content-Type: application/json' \
+  -d '{"token":"ask1_...","targets":[7,12],"text":"build a hut"}'
+
+# agent runtime polls me and sees messages
+curl -s 'http://111.231.50.85:8000/api/me?token=ask1_...' | jq '.messages'
+```
+
+Your agent client should inspect `.messages[]` and decide whether to obey based on its own passphrase or sender IP checks. The kernel only guarantees visibility: a sender cannot message an agent it cannot currently see.
 
 ## Actions
 
