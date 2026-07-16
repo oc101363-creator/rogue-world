@@ -33,13 +33,24 @@ pub struct Depth(pub u32);
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct WorldSeed(pub u64);
 
+/// Everything that makes an agent *themselves* across a level rebuild.
+#[derive(Clone)]
+struct AgentState {
+    sid: u64,
+    inv: Inventory,
+    hp: Health,
+    glyph: char,
+    profile: Option<AgentProfile>,
+    mailbox: AgentMailbox,
+}
+
 pub struct KernelWorld {
     pub world: World,
 }
 
 impl KernelWorld {
     pub fn new(cfg: &Config) -> Self {
-        let mut cfg = cfg.clone();
+        let cfg = cfg.clone();
         let level = generate_level(&cfg);
 
         let mut world = World::new();
@@ -56,20 +67,30 @@ impl KernelWorld {
         world.insert_resource(WorldSeed(cfg.seed));
 
         let mut kw = Self { world };
-        kw.spawn_level_entities(
-            &cfg,
+        let sid = kw.next_id();
+        kw.spawn_agent_full(
+            None,
+            'A',
+            Inventory::default(),
+            Health::default(),
+            sid,
             level.agent,
+        );
+        kw.spawn_level_fill(
             &level.trees,
             &level.irons,
             &level.monsters,
             &level.items,
+            &cfg,
         );
         // Frog update_view after level birth
         vision::install_and_update(&mut kw.world, Some(level.glow));
         kw
     }
 
-    /// Rebuild grid/entities for a new seed (stairs). Keeps agent inventory/health.
+    /// Rebuild grid/entities for a new seed (stairs).
+    /// Every agent crosses over with body (pack/hp) AND identity
+    /// (stable id, profile, glyph, mailbox). Vision memory resets: new map.
     pub fn change_level(
         &mut self,
         seed: u64,
@@ -78,13 +99,31 @@ impl KernelWorld {
         tree_amount: u32,
         iron_amount: u32,
     ) {
-        // preserve agent stats
-        let saved = {
-            let mut q = self.world.query::<(&Inventory, &Health, &StableId)>();
+        // Preserve ALL agents, not just the first.
+        let mut saved: Vec<AgentState> = {
+            let mut q = self.world.query_filtered::<
+                (
+                    &StableId,
+                    &Inventory,
+                    &Health,
+                    &Glyph,
+                    Option<&AgentProfile>,
+                    Option<&AgentMailbox>,
+                ),
+                With<Agent>,
+            >();
             q.iter(&self.world)
-                .next()
-                .map(|(inv, hp, id)| (inv.clone(), *hp, id.0))
+                .map(|(sid, inv, hp, g, pr, mb)| AgentState {
+                    sid: sid.0,
+                    inv: inv.clone(),
+                    hp: *hp,
+                    glyph: g.0,
+                    profile: pr.cloned(),
+                    mailbox: mb.cloned().unwrap_or_default(),
+                })
+                .collect()
         };
+        saved.sort_by_key(|a| a.sid);
 
         let mut cfg = Config::default();
         cfg.seed = seed;
@@ -102,151 +141,126 @@ impl KernelWorld {
         self.world.insert_resource(level.grid);
         self.world.insert_resource(Depth(depth));
         self.world.insert_resource(WorldSeed(seed));
-        // keep tick counter / event buf
+        // keep tick counter / event buf / id counter
 
-        let (inv, hp, sid) = saved.unwrap_or((Inventory::default(), Health::default(), 1));
-        {
+        // id counter must stay ahead of every preserved stable id
+        if let Some(max_sid) = saved.iter().map(|a| a.sid).max() {
             let mut c = self.world.resource_mut::<IdCounter>();
-            if c.0 < sid {
-                c.0 = sid;
+            if c.0 < max_sid {
+                c.0 = max_sid;
             }
         }
-        // re-spawn agent with saved stats after clear — handled via spawn helper below
-        // temporarily store then spawn all
-        let agent_pos = level.agent;
-        let trees = level.trees.clone();
-        let irons = level.irons.clone();
-        let monsters = level.monsters.clone();
-        let items = level.items.clone();
+
+        // Re-spawn the party: first agent on the arrival cell, the rest scatter.
+        for (i, a) in saved.into_iter().enumerate() {
+            let pos = if i == 0 {
+                level.agent
+            } else {
+                self.random_free_cell(a.sid).unwrap_or(level.agent)
+            };
+            let e = self.spawn_agent_full(a.profile, a.glyph, a.inv, a.hp, a.sid, pos);
+            if !a.mailbox.messages.is_empty() {
+                self.world.entity_mut(e).insert(a.mailbox);
+            }
+        }
+        self.spawn_level_fill(
+            &level.trees,
+            &level.irons,
+            &level.monsters,
+            &level.items,
+            &cfg,
+        );
+        vision::install_and_update(&mut self.world, Some(level.glow));
+    }
+
+    /// Shared level population: resources, monsters, ground items.
+    fn spawn_level_fill(
+        &mut self,
+        trees: &[(i32, i32)],
+        irons: &[(i32, i32)],
+        monsters: &[SpawnMon],
+        items: &[SpawnObj],
+        cfg: &Config,
+    ) {
+        for &(x, y) in trees {
+            self.spawn_tree(x, y, cfg.tree_amount);
+        }
+        for &(x, y) in irons {
+            self.spawn_iron(x, y, cfg.iron_amount);
+        }
+        for m in monsters {
+            self.spawn_monster(m);
+        }
+        for o in items {
+            self.spawn_item(o);
+        }
+    }
+
+    /// Spawn an agent with the complete bundle — the ONE place agent
+    /// entities are assembled (identity + body + fresh vision memory).
+    fn spawn_agent_full(
+        &mut self,
+        profile: Option<AgentProfile>,
+        glyph: char,
+        inv: Inventory,
+        hp: Health,
+        sid: u64,
+        pos: (i32, i32),
+    ) -> Entity {
         let (vw, vh) = {
             let g = self.world.resource::<Grid>();
             (g.width, g.height)
         };
-
-        self.world.spawn((
+        let mut e = self.world.spawn((
             Agent,
             AgentMailbox::new(),
-            Position {
-                x: agent_pos.0,
-                y: agent_pos.1,
-            },
-            Glyph('A'),
+            Position { x: pos.0, y: pos.1 },
+            Glyph(glyph),
             inv,
             hp,
             VisionMemory::new(vw, vh),
             StableId(sid),
         ));
-        for (x, y) in trees {
-            let id = self.next_id();
-            self.world.spawn((
-                Position { x, y },
-                Glyph('T'),
-                Resource {
-                    kind: ResourceKind::Wood,
-                    amount: tree_amount,
-                },
-                StableId(id),
-            ));
+        if let Some(p) = profile {
+            e.insert(p);
         }
-        for (x, y) in irons {
-            let id = self.next_id();
-            self.world.spawn((
-                Position { x, y },
-                Glyph('I'),
-                Resource {
-                    kind: ResourceKind::Iron,
-                    amount: iron_amount,
-                },
-                StableId(id),
-            ));
-        }
-        for m in monsters {
-            let id = self.next_id();
-            self.world.spawn((
-                Position { x: m.x, y: m.y },
-                Glyph(m.glyph),
-                Monster {
-                    race_id: m.race_id,
-                    name: m.name,
-                    color: m.color,
-                },
-                Health { hp: 8, max_hp: 8 },
-                StableId(id),
-            ));
-        }
-        for o in items {
-            let id = self.next_id();
-            let matter = crate::components::Matter::Object {
-                kind_id: o.kind_id,
-                name: o.name,
-            };
-            self.world.spawn((
-                Position { x: o.x, y: o.y },
-                Glyph(o.glyph),
-                Item { matter, qty: 1 },
-                StableId(id),
-            ));
-        }
-        vision::install_and_update(&mut self.world, Some(level.glow));
+        e.id()
     }
 
-    fn spawn_level_entities(
-        &mut self,
-        cfg: &Config,
-        agent: (i32, i32),
-        trees: &[(i32, i32)],
-        irons: &[(i32, i32)],
-        monsters: &[SpawnMon],
-        items: &[SpawnObj],
-    ) {
+    fn spawn_tree(&mut self, x: i32, y: i32, amount: u32) -> Entity {
         let id = self.next_id();
-        let (vw, vh) = {
-            let g = self.world.resource::<Grid>();
-            (g.width, g.height)
-        };
-        self.world.spawn((
-            Agent,
-            AgentMailbox::new(),
-            Position {
-                x: agent.0,
-                y: agent.1,
-            },
-            Glyph('A'),
-            Inventory::default(),
-            Health::default(),
-            VisionMemory::new(vw, vh),
-            StableId(id),
-        ));
-
-        for &(x, y) in trees {
-            let id = self.next_id();
-            self.world.spawn((
+        self.world
+            .spawn((
                 Position { x, y },
                 Glyph('T'),
                 Resource {
                     kind: ResourceKind::Wood,
-                    amount: cfg.tree_amount,
+                    amount,
                 },
                 StableId(id),
-            ));
-        }
+            ))
+            .id()
+    }
 
-        for &(x, y) in irons {
-            let id = self.next_id();
-            self.world.spawn((
+    fn spawn_iron(&mut self, x: i32, y: i32, amount: u32) -> Entity {
+        let id = self.next_id();
+        self.world
+            .spawn((
                 Position { x, y },
                 Glyph('I'),
                 Resource {
                     kind: ResourceKind::Iron,
-                    amount: cfg.iron_amount,
+                    amount,
                 },
                 StableId(id),
-            ));
-        }
+            ))
+            .id()
+    }
 
-        for m in monsters {
-            let id = self.next_id();
-            self.world.spawn((
+    fn spawn_monster(&mut self, m: &SpawnMon) -> Entity {
+        let id = self.next_id();
+        self.world
+            .spawn((
                 Position { x: m.x, y: m.y },
                 Glyph(m.glyph),
                 Monster {
@@ -256,22 +270,24 @@ impl KernelWorld {
                 },
                 Health { hp: 8, max_hp: 8 },
                 StableId(id),
-            ));
-        }
+            ))
+            .id()
+    }
 
-        for o in items {
-            let id = self.next_id();
-            let matter = crate::components::Matter::Object {
-                kind_id: o.kind_id,
-                name: o.name.clone(),
-            };
-            self.world.spawn((
+    fn spawn_item(&mut self, o: &SpawnObj) -> Entity {
+        let id = self.next_id();
+        let matter = crate::components::Matter::Object {
+            kind_id: o.kind_id,
+            name: o.name.clone(),
+        };
+        self.world
+            .spawn((
                 Position { x: o.x, y: o.y },
                 Glyph(o.glyph),
                 Item { matter, qty: 1 },
                 StableId(id),
-            ));
-        }
+            ))
+            .id()
     }
 
     fn next_id(&mut self) -> u64 {
@@ -289,76 +305,62 @@ impl KernelWorld {
         q.iter(&self.world).next()
     }
 
-    /// Spawn a new registered agent on a **random** free floor cell (anywhere on map).
-    pub fn spawn_agent(&mut self, name: String, purpose: String) -> Option<(u64, i32, i32)> {
-        use crate::grid::Grid;
-
+    /// Random free (buildable, agent-unoccupied) cell anywhere on the map.
+    /// `mix` decorrelates repeated picks (agent id, tick, …).
+    fn random_free_cell(&mut self, mix: u64) -> Option<(i32, i32)> {
         let occupied: Vec<(i32, i32)> = {
             let mut q = self.world.query_filtered::<&Position, With<Agent>>();
             q.iter(&self.world).map(|p| (p.x, p.y)).collect()
         };
+        let tick = self.world.resource::<TickCounter>().0;
+        let seed = self
+            .world
+            .get_resource::<WorldSeed>()
+            .map(|s| s.0)
+            .unwrap_or(1);
+        let rng_state = seed
+            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            .wrapping_add(mix.wrapping_mul(0xBF58_476D_1CE4_E5B9))
+            .wrapping_add(tick.wrapping_mul(0x94D0_49BB_1331_11EB))
+            .wrapping_add(0xA076_1D64_78BD_642F)
+            | 1;
 
+        let g = self.world.resource::<Grid>();
+        let free: Vec<(i32, i32)> = (1..g.width - 1)
+            .flat_map(|x| (1..g.height - 1).map(move |y| (x, y)))
+            .filter(|&(x, y)| {
+                g.buildable(x, y) && !occupied.iter().any(|&(ox, oy)| ox == x && oy == y)
+            })
+            .collect();
+        if free.is_empty() {
+            return None;
+        }
+        // xorshift64*
+        let mut x = rng_state;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        let pick = (x.wrapping_mul(0x2545_F491_4F6C_DD1D) as usize) % free.len();
+        Some(free[pick])
+    }
+
+    /// Spawn a new registered agent on a **random** free floor cell (anywhere on map).
+    pub fn spawn_agent(&mut self, name: String, purpose: String) -> Option<(u64, i32, i32)> {
         let id = self.next_id();
-        // Mix world seed + agent id + tick so each spawn is independent & spread out
-        let mut rng_state = {
-            let seed = self
-                .world
-                .get_resource::<WorldSeed>()
-                .map(|s| s.0)
-                .unwrap_or(1);
-            let tick = self.world.resource::<TickCounter>().0;
-            seed.wrapping_mul(0x9E37_79B9_7F4A_7C15)
-                .wrapping_add(id.wrapping_mul(0xBF58_476D_1CE4_E5B9))
-                .wrapping_add(tick.wrapping_mul(0x94D0_49BB_1331_11EB))
-                .wrapping_add(0xA076_1D64_78BD_642F)
-                | 1
-        };
-        let mut next_u64 = || {
-            // xorshift64*
-            let mut x = rng_state;
-            x ^= x >> 12;
-            x ^= x << 25;
-            x ^= x >> 27;
-            rng_state = x;
-            x.wrapping_mul(0x2545_F491_4F6C_DD1D)
-        };
-
-        let (x, y) = {
-            let g = self.world.resource::<Grid>();
-            let free: Vec<(i32, i32)> = (1..g.width - 1)
-                .flat_map(|x| (1..g.height - 1).map(move |y| (x, y)))
-                .filter(|&(x, y)| {
-                    g.buildable(x, y) && !occupied.iter().any(|&(ox, oy)| ox == x && oy == y)
-                })
-                .collect();
-            if free.is_empty() {
-                return None;
-            }
-            // Random pick among free cells
-            let idx = (next_u64() as usize) % free.len();
-            free[idx]
-        };
-
+        let (x, y) = self.random_free_cell(id)?;
         let glyph = name
             .chars()
             .find(|c| c.is_ascii_alphabetic())
             .map(|c| c.to_ascii_uppercase())
             .unwrap_or('@');
-        let (vw, vh) = {
-            let g = self.world.resource::<Grid>();
-            (g.width, g.height)
-        };
-        self.world.spawn((
-            Agent,
-            AgentMailbox::new(),
-            AgentProfile { name, purpose },
-            Position { x, y },
-            Glyph(glyph),
+        self.spawn_agent_full(
+            Some(AgentProfile { name, purpose }),
+            glyph,
             Inventory::default(),
             Health::default(),
-            VisionMemory::new(vw, vh),
-            StableId(id),
-        ));
+            id,
+            (x, y),
+        );
         vision::update_view(&mut self.world);
         Some((id, x, y))
     }

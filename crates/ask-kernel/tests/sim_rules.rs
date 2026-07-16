@@ -360,7 +360,6 @@ fn monsters_spawn_from_templates_and_can_move() {
 #[test]
 fn item_pickup_on_same_cell() {
     use ask_kernel::components::{Item, StableId};
-    use bevy_ecs::prelude::*;
     let mut kw = KernelWorld::new(&Config {
         width: 88,
         height: 66,
@@ -477,7 +476,6 @@ fn player_bus_overrides_mock_and_moves() {
 fn dig_puts_terrain_in_pack_and_place_restores() {
     use ask_kernel::actions::{Action, ActionQueue};
     use ask_kernel::components::{Inventory, Matter};
-    use ask_kernel::f_info::id;
     use ask_kernel::grid::Grid;
     use ask_kernel::systems::apply_actions_system;
 
@@ -797,4 +795,63 @@ fn vision_marks_agent_cell_and_blocks_walls() {
     // Far corner should be unknown (not marked, not view) on a mid-size map
     let far_ok = !vis.is_view(1, 1) || (ax - 1).abs() + (ay - 1).abs() <= vision::MAX_SIGHT;
     assert!(far_ok || !vis.is_visible(1, 1));
+}
+
+#[test]
+fn change_level_preserves_all_agents_body_and_identity() {
+    use ask_kernel::components::{Agent, AgentProfile, Matter, StableId};
+    use bevy_ecs::prelude::{Entity, With, Without};
+
+    let mut cfg = Config::default();
+    cfg.width = 132;
+    cfg.height = 88;
+    cfg.seed = 5;
+    let mut kw = KernelWorld::new(&cfg);
+
+    // second, registered agent
+    let (sid2, _, _) = kw
+        .spawn_agent("Scout".into(), "map west".into())
+        .expect("spawn");
+    // first agent stable id + give both some pack contents
+    let sid1 = {
+        let mut q = kw
+            .world
+            .query_filtered::<&StableId, (With<Agent>, Without<AgentProfile>)>();
+        q.iter(&kw.world).next().map(|s| s.0).expect("first agent")
+    };
+    for sid in [sid1, sid2] {
+        let e = {
+            let mut q = kw.world.query_filtered::<(Entity, &StableId), With<Agent>>();
+            q.iter(&kw.world)
+                .find(|(_, s)| s.0 == sid)
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        let mut inv = kw.world.get_mut::<Inventory>(e).unwrap();
+        inv.add(Matter::Resource { resource: ResourceKind::Wood }, 7);
+    }
+
+    kw.change_level(999, 1, 3, 4, 4);
+
+    // both agents survived with body + identity
+    let mut seen = std::collections::HashMap::new();
+    {
+        let mut q = kw.world.query_filtered::<
+            (&StableId, &Inventory, Option<&AgentProfile>),
+            With<Agent>,
+        >();
+        for (sid, inv, pr) in q.iter(&kw.world) {
+            seen.insert(sid.0, (inv.wood(), pr.map(|p| p.name.clone())));
+        }
+    }
+    assert_eq!(seen.len(), 2, "both agents must survive level change");
+    assert_eq!(seen.get(&sid1).map(|v| v.0), Some(7), "agent 1 pack lost");
+    assert_eq!(seen.get(&sid2).map(|v| v.0), Some(7), "agent 2 pack lost");
+    assert_eq!(
+        seen.get(&sid2).and_then(|v| v.1.clone()),
+        Some("Scout".to_string()),
+        "registered profile lost"
+    );
+    // depth advanced
+    assert_eq!(kw.world.resource::<ask_kernel::world::Depth>().0, 1);
 }
