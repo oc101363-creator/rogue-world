@@ -453,7 +453,8 @@ fn player_bus_overrides_mock_and_moves() {
         },
         Some(0),
     );
-    assert!(bus.human_control());
+    // submitting must not flip the world-wide human_control switch
+    assert!(!bus.human_control());
     sim.step();
 
     let after = {

@@ -15,7 +15,6 @@ use crate::grid::Grid;
 use crate::inspect;
 use anyhow::Result;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::connect_info::ConnectInfo;
 use axum::extract::{Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -73,6 +72,9 @@ struct ActionResponse {
 #[derive(Debug, Deserialize)]
 struct ControlRequest {
     human_control: bool,
+    /// Operator credential: must be the dev token.
+    #[serde(default)]
+    token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -294,11 +296,7 @@ pub async fn run_server(port: u16, tick_ms: u64, cfg: Config) -> Result<()> {
     eprintln!("[ask] tick {tick_ms}ms");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await?;
+    axum::serve(listener, app.into_make_service()).await?;
     Ok(())
 }
 
@@ -542,7 +540,14 @@ async fn api_me(State(st): State<AppState>, Query(q): Query<MeQuery>) -> impl In
         Some(tok),
     );
 
-    let Some(a) = snap.entities.iter().find(|e| e.kind == "agent") else {
+    // "self" is the focused agent (the token's own), never merely the
+    // lowest-id visible agent — other tracked/visible agents may sort first.
+    let Some(a) = snap
+        .entities
+        .iter()
+        .find(|e| e.kind == "agent" && Some(e.id) == snap.focused_agent_id)
+        .or_else(|| snap.entities.iter().find(|e| e.kind == "agent"))
+    else {
         return Json(serde_json::json!({ "ok": false, "reason": "no_agent" }));
     };
     let (x, y) = (a.x, a.y);
@@ -847,7 +852,6 @@ async fn api_cell(State(st): State<AppState>, Query(q): Query<CellQuery>) -> imp
 
 async fn api_message_send(
     State(st): State<AppState>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(req): Json<MessageSendRequest>,
 ) -> impl IntoResponse {
     const MAX_LEN: usize = 500;
@@ -884,7 +888,18 @@ async fn api_message_send(
         .split(',')
         .map(str::trim)
         .any(|t| st.reg.is_dev_token(t));
-    let sender_ip = addr.ip().to_string();
+    // Sender identity comes from the token (agent name), never the wire IP —
+    // recipients need to know *who* in the world wrote to them.
+    let sender_name = if is_dev {
+        "DEV".to_string()
+    } else {
+        req.token
+            .split(',')
+            .map(str::trim)
+            .find_map(|t| st.reg.public_for_token(t))
+            .map(|p| p.name)
+            .unwrap_or_else(|| "anon".into())
+    };
     let tick = sim.kernel.tick();
 
     // Build a StableId -> (Entity, Position) map once.
@@ -927,7 +942,7 @@ async fn api_message_send(
 
         mailbox.push(crate::components::Envelope {
             id,
-            from: sender_ip.clone(),
+            from: sender_name.clone(),
             text: text.clone(),
             sent_tick: tick,
             read: false,
@@ -962,31 +977,36 @@ async fn api_action(
         });
     }
 
-    // Resolve identity: token preferred
-    let agent_id = if let Some(ref tok) = req.token {
-        match st.reg.resolve_token(tok) {
-            Some(id) => Some(id),
-            None => {
-                return Json(ActionResponse {
-                    ok: true,
-                    accepted: false,
-                    tick,
-                    agent_id: None,
-                    human_control: st.bus.human_control(),
-                    reason: Some("invalid_token".into()),
-                });
-            }
-        }
-    } else {
-        req.agent_id
+    // Identity: token is mandatory. A bare `agent_id` is NOT an identity —
+    // it lets any client drive any agent. When both are sent they must match.
+    let reject = |reason: &str, agent_id: Option<u64>| {
+        Json(ActionResponse {
+            ok: true,
+            accepted: false,
+            tick,
+            agent_id,
+            human_control: st.bus.human_control(),
+            reason: Some(reason.into()),
+        })
     };
+    let Some(ref tok) = req.token else {
+        return reject("token_required", None);
+    };
+    let Some(agent_id) = st.reg.resolve_token(tok) else {
+        return reject("invalid_token", None);
+    };
+    if let Some(declared) = req.agent_id {
+        if declared != agent_id {
+            return reject("agent_id_token_mismatch", Some(agent_id));
+        }
+    }
 
-    st.bus.submit(agent_id, req.action, req.tick.or(Some(tick)));
+    st.bus.submit(Some(agent_id), req.action, req.tick.or(Some(tick)));
     Json(ActionResponse {
         ok: true,
         accepted: true,
         tick,
-        agent_id,
+        agent_id: Some(agent_id),
         human_control: st.bus.human_control(),
         reason: None,
     })
@@ -996,6 +1016,24 @@ async fn api_control(
     State(st): State<AppState>,
     Json(req): Json<ControlRequest>,
 ) -> impl IntoResponse {
+    // World-wide switch: operator-only (dev token), same as WS control.
+    let ok_auth = req
+        .token
+        .as_deref()
+        .map(|t| st.reg.is_dev_token(t))
+        .unwrap_or(false);
+    if !ok_auth {
+        let tick = {
+            let sim = st.sim.lock().await;
+            sim.kernel.tick()
+        };
+        return Json(serde_json::json!({
+            "ok": false,
+            "reason": "dev_token_required",
+            "human_control": st.bus.human_control(),
+            "tick": tick,
+        }));
+    }
     st.bus.set_human_control(req.human_control);
     let tick = {
         let sim = st.sim.lock().await;
@@ -1086,12 +1124,18 @@ async fn client_ws(mut socket: WebSocket, st: AppState) {
 }
 
 async fn handle_ws_action(st: &AppState, v: &serde_json::Value) {
-    let token = v.get("token").and_then(|x| x.as_str());
-    let agent_id = if let Some(tok) = token {
-        st.reg.resolve_token(tok)
-    } else {
-        v.get("agent_id").and_then(|x| x.as_u64())
+    // Same rule as POST /api/act: token is the only identity.
+    let Some(token) = v.get("token").and_then(|x| x.as_str()) else {
+        return;
     };
+    let Some(agent_id) = st.reg.resolve_token(token) else {
+        return;
+    };
+    if let Some(declared) = v.get("agent_id").and_then(|x| x.as_u64()) {
+        if declared != agent_id {
+            return;
+        }
+    }
     let tick = {
         let sim = st.sim.lock().await;
         sim.kernel.tick()
@@ -1103,10 +1147,15 @@ async fn handle_ws_action(st: &AppState, v: &serde_json::Value) {
     if validate_action(&action).is_err() {
         return;
     }
-    st.bus.submit(agent_id, action, Some(tick));
+    st.bus.submit(Some(agent_id), action, Some(tick));
 }
 
 fn handle_ws_control(st: &AppState, v: &serde_json::Value) {
+    // World-wide switches are operator-only: dev token required.
+    let token = v.get("token").and_then(|x| x.as_str()).unwrap_or("");
+    if !st.reg.is_dev_token(token) {
+        return;
+    }
     if let Some(hc) = v.get("human_control").and_then(|x| x.as_bool()) {
         st.bus.set_human_control(hc);
     }

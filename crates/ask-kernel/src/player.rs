@@ -3,7 +3,7 @@
 //! External clients never mutate World; they only enqueue Actions.
 //! Sim consumes them once per tick (last-write-wins per agent).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use bevy_ecs::prelude::*;
@@ -23,7 +23,12 @@ pub struct PlayerActionBus {
 struct BusInner {
     /// stable_id → pending action (overwritten if multiple submits before tick).
     pending: HashMap<u64, Action>,
+    /// Agents that have been driven by the bus at least once. They wait for
+    /// input instead of falling back to MockPolicy when the queue is empty —
+    /// "my character pauses" without freezing anyone else.
+    manual: HashSet<u64>,
     /// When true, agents without a pending action Idle (no MockPolicy).
+    /// Operator-only world switch (/api/control with dev token).
     human_control: bool,
     /// Last accepted submit tick hint (for client ack).
     last_submit_tick: Option<u64>,
@@ -36,9 +41,11 @@ impl PlayerActionBus {
 
     /// Submit an action for `agent_id`. `None` → first agent at consume time
     /// is handled via `take_for_entity` fallback key `0` (wildcard).
+    ///
+    /// Note: submitting an action does NOT flip global `human_control` —
+    /// that world-wide switch is operator-only (`/api/control` + dev token).
     pub fn submit(&self, agent_id: Option<u64>, action: Action, tick_hint: Option<u64>) {
         let mut g = self.inner.lock().expect("player bus");
-        g.human_control = true;
         g.last_submit_tick = tick_hint;
         let key = agent_id.unwrap_or(0);
         g.pending.insert(key, action);
@@ -53,14 +60,29 @@ impl PlayerActionBus {
     }
 
     /// Take action for this stable id. Also checks wildcard key `0` (any/first agent).
+    /// A consumed submit marks the agent as manually driven (see `manual`).
     pub fn take_for(&self, stable_id: u64) -> Option<Action> {
         let mut g = self.inner.lock().expect("player bus");
-        if let Some(a) = g.pending.remove(&stable_id) {
+        let taken = if let Some(a) = g.pending.remove(&stable_id) {
             // consume wildcard if it was meant for the only agent
             g.pending.remove(&0);
-            return Some(a);
+            Some(a)
+        } else {
+            g.pending.remove(&0)
+        };
+        if taken.is_some() {
+            g.manual.insert(stable_id);
         }
-        g.pending.remove(&0)
+        taken
+    }
+
+    /// Has this agent ever been driven by the bus?
+    pub fn is_manual(&self, stable_id: u64) -> bool {
+        self.inner
+            .lock()
+            .expect("player bus")
+            .manual
+            .contains(&stable_id)
     }
 
     pub fn pending_count(&self) -> usize {
@@ -102,7 +124,13 @@ impl AgentPolicy for BusPolicy {
             return Action::Idle;
         }
 
+        // Operator froze the world: everything without input idles.
         if self.bus.human_control() {
+            return Action::Idle;
+        }
+
+        // Bus-driven agents wait for their driver; they don't revert to mock.
+        if self.bus.is_manual(sid) {
             return Action::Idle;
         }
 
@@ -112,5 +140,22 @@ impl AgentPolicy for BusPolicy {
 
         let _: Option<&Agent> = world.get::<Agent>(agent);
         Action::Idle
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: submitting an action must NOT flip global human_control
+    /// (one agent acting froze every mock agent in the world).
+    #[test]
+    fn submit_does_not_enable_human_control() {
+        let bus = PlayerActionBus::new();
+        assert!(!bus.human_control());
+        bus.submit(Some(1), Action::Idle, None);
+        assert!(!bus.human_control());
+        assert_eq!(bus.pending_count(), 1);
+        assert_eq!(bus.take_for(1), Some(Action::Idle));
     }
 }

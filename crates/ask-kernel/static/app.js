@@ -1087,14 +1087,17 @@ function sendAction(action) {
 function setHumanControl(on) {
   humanControl = on;
   updateModeHud();
-  const msg = { type: "control", human_control: on };
+  // /api/control is operator-only: the server requires the dev token.
+  // Paste the dev token into the TRACK panel to enable this switch.
+  const token = followToken || (tracked[0] && tracked[0].token);
+  const msg = { type: "control", human_control: on, token };
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(msg));
   } else {
     fetch("/api/control", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ human_control: on }),
+      body: JSON.stringify({ human_control: on, token }),
     }).catch(() => {});
   }
 }

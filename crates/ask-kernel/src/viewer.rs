@@ -119,11 +119,22 @@ pub fn build_viewer_snapshot_with(
         let grid = world.resource::<Grid>();
         let w = grid.width;
         let h = grid.height;
+        // FOV gate: cells the viewer may not see are masked to feat 0 (NONE).
+        // tiles/vision rows already paint void there; feat_ids must not leak them.
+        let masked: Vec<u16> = {
+            let mut m = Vec::with_capacity(grid.cells.len());
+            for (i, &c) in grid.cells.iter().enumerate() {
+                let x = (i as i32) % w;
+                let y = (i as i32) / w;
+                m.push(if vis.display_class(x, y) == 0 { 0 } else { c });
+            }
+            m
+        };
         let feat_ids = FeatIdsPayload {
             enc: "u16le_b64",
             w,
             h,
-            data: art::encode_feat_ids_b64(&grid.cells),
+            data: art::encode_feat_ids_b64(&masked),
         };
         let mut tiles = Vec::with_capacity(h as usize);
         let mut tile_colors = Vec::with_capacity(h as usize);
