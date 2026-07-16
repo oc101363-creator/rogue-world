@@ -143,6 +143,74 @@ const THEMES = [
       entityBg: "#313244",
     },
   },
+  {
+    // Legacy high-contrast raw look — “无配色”
+    id: "none",
+    name: "无配色",
+    ui: {
+      bg: "#050805",
+      hud: "#c8c8c8",
+      hudMuted: "#888888",
+      online: "#33ff66",
+      offline: "#ff4444",
+      accent: "#40a4b9",
+    },
+    void: "#050805",
+    materials: {
+      basalt: "#e8e8e8",
+      granite: "#c0c0c0",
+      gold: "#ffd700",
+      aquifer: "#1e90ff",
+      magma: "#ff7f00",
+      organic: "#228b22",
+      void: "#050805",
+      ui_primary: "#33ff66",
+      ui_warning: "#ffd700",
+      ui_danger: "#ff6b6b",
+      ui_info: "#40a4b9",
+      text_white: "#c8c8c8",
+      depth_shadow: "#1a280a",
+    },
+    memoryFactor: 0.38,
+    selection: "#1a280a",
+    letters: {
+      D: "#000000",
+      d: "#404040",
+      s: "#808080",
+      w: "#e8e8e8",
+      W: "#ffffff",
+      b: "#1e90ff",
+      B: "#87cefa",
+      g: "#228b22",
+      G: "#90ee90",
+      r: "#c41e3a",
+      R: "#ff6b6b",
+      o: "#ff7f00",
+      y: "#ffd700",
+      u: "#8b4513",
+      U: "#deb887",
+      v: "#c44cff",
+      L: "#3cb371",
+      l: "#40a4b9",
+    },
+    cellBg: function (letter, ch) {
+      if (ch === "~" && "bB".includes(letter)) return "#0a1520";
+      if (ch === "~" && "rRo".includes(letter)) return "#2a0a0a";
+      if (ch === "#") return "#0e0e10";
+      if (letter === "g" || letter === "L") return "#0a1a0a";
+      if (letter === "u") return "#1a140a";
+      return "#050805";
+    },
+    entities: {
+      agent: "#ffe066",
+      tree: "#2dd36f",
+      iron: "#c8d6e5",
+      hut: "#ff9f43",
+      monster: "#ff6b6b",
+      item: "#c44cff",
+      entityBg: "#1a280a",
+    },
+  },
 ];
 
 function getTheme(id) {
