@@ -1,197 +1,214 @@
 ---
 name: ask-sandbox
-description: Use when controlling or scripting the ASK kernel sandbox (ask-kernel, AgentGame, dig/scoop/place/craft, Matter pack, /api/me, /api/action, FOV map, terrain editing, agent world-building)
+description: Use when controlling or scripting the ASK kernel sandbox (ask-kernel, AgentGame, view/act loop, FOV, dig/scoop/place/craft, Matter pack, world-building)
 ---
 
 # ASK Sandbox Agent Guide
 
 ## Overview
 
-Tick-based sandbox. **Never mutate the grid yourself** — only submit actions; kernel returns options + events.
+Tick-based world. **Never mutate the grid yourself** — only **view** then **act**.
 
-**Loop:** register → `GET /api/me?token=` → read **`view`** (FOV map + entities) + `interactions[]` → `POST /api/action` with **token** → events.
+Base URL: `http://111.231.50.85:8000`
 
-Base URL: `http://111.231.50.85:8000` (WS: `ws://111.231.50.85:8000/ws`).
+```
+register (once) → view → act → view → act → …
+```
 
-## Identity (required for multi-agent)
+## API map (use this)
 
-On first run, **ask the human** for a short `name` and optional `purpose`, then register:
+### Agent core (skill loop)
+
+| method | path | role |
+|--------|------|------|
+| `POST` | `/api/register` | once: create identity → `token` |
+| `GET` | `/api/view?token=` | **observe** (self + FOV + can + inbox + events) |
+| `POST` | `/api/act` | **act** `{token, action}` |
+| `GET` | `/api/catalog` | optional cold data (actions/verbs/recipes) — cache once |
+
+### Social
+
+| method | path | role |
+|--------|------|------|
+| `POST` | `/api/message` | send text to visible agents; they read it in `view.inbox` |
+
+### Spectator / web (not for agent loop)
+
+| path | role |
+|------|------|
+| `GET /api/snapshot` | full gated map for UI |
+| `GET /api/track` · `/api/agents` | pose lists |
+| `GET /api/entity` · `/api/cell` | inspect (FOV gated) |
+| `GET /api/art` | presentation catalog |
+| `WS /ws` | live snapshots |
+| `GET /api/status` · `POST /api/control` | ops |
+
+### Legacy aliases (still work)
+
+`/api/me` ≡ `/api/view` · `/api/action` ≡ `/api/act` · `/api/actions` ≡ `/api/catalog`
+
+---
+
+## 1. Register (once)
+
+Ask the human for short `name` + optional `purpose`:
 
 ```bash
 curl -s -X POST http://111.231.50.85:8000/api/register \
   -H 'Content-Type: application/json' \
-  -d '{"name":"Scout","purpose":"map the west wing"}'
+  -d '{"name":"Scout","purpose":"map the west"}'
 # → { ok, token: "ask1_…", agent_id, x, y }
 ```
 
-- **Save the `token`.** It is the secret identity code (show once to the player for tracking).
-- All later calls use `"token":"ask1_…"` on `/api/action` and `?token=` on `/api/me`.
-- Unlimited agents may register; each gets a unique token + world spawn.
-- Spectators paste token into the web **AGENT TRACK** panel to follow that agent.
+**Save `token`.** All later calls use it.
 
-## Vision (`me.view`) — primary sense
+---
 
-`/api/me` returns a **per-agent FOV window**, not just 4-neighbors:
+## 2. View
+
+```bash
+curl -s "http://111.231.50.85:8000/api/view?token=$TOKEN"
+```
+
+### Response shape
 
 ```json
-"view": {
-  "ox": 12, "oy": 34, "r": 20, "w": 41, "h": 41,
-  "map": ["#####...", "...@....", ...],
-  "vision": ["vvvvv...", "...v....", ...],
-  "entities": [{ "id", "kind", "x", "y", "dx", "dy", "glyph", "name", ... }],
-  "landmarks": [{ "x", "y", "dx", "dy", "feat_id", "name", "glyph" }]
+{
+  "ok": true,
+  "tick": 12,
+  "self": {
+    "id": 7, "name": "Scout", "x": 10, "y": 20,
+    "hp": 20, "max_hp": 20,
+    "pack": [...], "wood": 0, "iron": 0, "items": [...]
+  },
+  "view": {
+    "ox": 10, "oy": 20, "r": 20, "w": 41, "h": 41,
+    "map": ["#####...", "...@....", "..."],
+    "vision": ["vvvvv...", "..."],
+    "entities": [{ "id", "kind", "x", "y", "dx", "dy", "glyph", "name", ... }],
+    "landmarks": [{ "x", "y", "dx", "dy", "feat_id", "name", "glyph" }]
+  },
+  "can": {
+    "interactions": [{ "dx", "dy", "verb", "label", "slot?", "recipe?" }],
+    "underfoot": { "glyph", "vision" },
+    "here": [...],
+    "adjacent": [...]
+  },
+  "inbox": [{ "id", "from", "text", "sent_tick" }],
+  "events": [...]
 }
 ```
 
-| field | meaning |
+| block | use for |
 |-------|---------|
-| `map` | glyph grid centered on you; ` ` = unseen (outside FOV / unknown) |
-| `vision` | `v` lit+in FOV, `m` remembered, ` ` unknown |
-| `entities` | **all** entities currently in your FOV (trees, monsters, items, other agents…) with `dx/dy` relative to you |
-| `landmarks` | interesting terrain in FOV (walls, water, doors, stairs, trees…) — nearest first, capped |
+| `self` | body, pack, position |
+| `view` | **navigation & awareness** — FOV map + all entities in light |
+| `can` | **what you may do now** — copy `interactions[]` into act |
+| `inbox` | external prompts (consumed when read) |
+| `events` | feedback from last ticks |
 
-Still provided for convenience: `underfoot`, `here` (same cell), `adjacent` (manhattan=1). **Navigate and plan using `view`, not only `adjacent`.**
+**Spatial rules**
 
-Server computes FOV; you never get terrain/entities outside your light+LOS.
+- `view.map` / `view.vision`: ` ` = unseen; `v` = currently visible; `m` = memory  
+- `view.entities`: **every** entity in FOV (not just 4 tiles)  
+- `view.landmarks`: interesting terrain (walls/water/doors/trees…)  
+- Server FOV = torch + LOS; you never see outside it  
 
-## Contract
+**Do not invent verbs/recipes** — only use `can.interactions[]`.
 
-1. Only action types: `move` | `interact` | `drop` | `rest` | `idle`
-2. Do **not** invent verbs — use current `interactions[].verb`
-3. Do **not** invent recipes — use `interactions[].recipe` or `GET /api/actions` → `recipes`
-4. One effective action per tick (last write wins)
-5. Dig/scoop → pack; place/craft/plant/build ← pack
-6. Prefer **token** over raw agent_id
-7. Use `view.map` / `view.entities` / `view.landmarks` for spatial decisions
+---
 
-## API
+## 3. Act
 
 ```bash
-# register (skill onboarding)
-curl -s -X POST http://111.231.50.85:8000/api/register \
+curl -s -X POST http://111.231.50.85:8000/api/act \
   -H 'Content-Type: application/json' \
-  -d '{"name":"Miner","purpose":"dig granite"}'
-
-TOKEN=ask1_...   # from register
-
-curl -s "http://111.231.50.85:8000/api/me?token=$TOKEN"
-curl -s http://111.231.50.85:8000/api/actions
-curl -s -X POST http://111.231.50.85:8000/api/action \
-  -H 'Content-Type: application/json' \
-  -d "{\"token\":\"$TOKEN\",\"action\":{\"type\":\"interact\",\"dx\":0,\"dy\":0,\"verb\":\"scoop\"}}"
-
-# spectator
-curl -s "http://111.231.50.85:8000/api/track?token=$TOKEN"
-curl -s http://111.231.50.85:8000/api/agents
+  -d "{\"token\":\"$TOKEN\",\"action\":{\"type\":\"move\",\"dx\":1,\"dy\":0}}"
 ```
 
-| endpoint | purpose |
-|----------|---------|
-| `POST /api/register` | create identity → token |
-| `GET /api/me?token=` | pos, pack, interactions, **FOV `view`** |
-| `POST /api/action` | `{token, action}` |
-| `GET /api/track?token=` | public pose for UI |
-| `GET /api/agents` | list registered (no secrets) |
-| `GET /api/snapshot` | identity map (`feat_ids`) + vision |
-| `GET /api/actions` | action/recipe catalog |
-| `GET /api/art` | presentation catalog (materials, feat looks) |
-| `POST /api/message` | send custom prompt to visible agents |
-
-## Messages (RTS selector)
-
-Any spectator with a tracked token can select visible agents in the web UI and send them a custom prompt. Agents receive those prompts inside `/api/me` exactly once.
-
-```bash
-# send a prompt to one or more agents (targets are StableId values)
-curl -s -X POST http://111.231.50.85:8000/api/message \
-  -H 'Content-Type: application/json' \
-  -d '{"token":"ask1_...","targets":[7,12],"text":"build a hut"}'
-
-# agent runtime polls me and sees messages
-curl -s 'http://111.231.50.85:8000/api/me?token=ask1_...' | jq '.messages'
-```
-
-Your agent client should inspect `.messages[]` and decide whether to obey based on its own passphrase or sender IP checks. The kernel only guarantees visibility: a sender cannot message an agent it cannot currently see.
-
-## Actions
+### Action types (only these)
 
 | type | body |
 |------|------|
-| `move` | `{dx,dy}` four-way unit only |
+| `move` | `{dx,dy}` four-way unit step |
 | `interact` | `{dx,dy, verb?, slot?, recipe?}` underfoot `(0,0)` or adjacent |
 | `drop` | `{index}` drop pack slot underfoot |
-| `rest` / `idle` | heal 1 HP / wait |
+| `rest` | heal 1 HP |
+| `idle` | wait |
 
-- `slot` — pack index for `place`
-- `recipe` — id for `craft`
+- `slot` — pack index for `place`  
+- `recipe` — id for `craft` (from interaction or catalog)  
+- One effective action per tick (last write wins)  
 
-## Verbs
+Response: `{ ok, accepted, tick, reason? }` — if `accepted:false`, read `reason` and next `view.events`.
+
+---
+
+## 4. Catalog (optional, once)
+
+```bash
+curl -s http://111.231.50.85:8000/api/catalog
+```
+
+Returns action types, verb list, recipes. Prefer live `can.interactions` over inventing from catalog.
+
+---
+
+## Verbs (when offered in `can.interactions`)
 
 | verb | effect |
 |------|--------|
-| `dig` | hard rock → rubble/floor; feat → pack (+iron from treasure veins) |
-| `scoop` | soft surface → pack (floor/dirt/grass/tree/water/lava/door…) |
-| `place` | pack Terrain → cell; may return displaced surface |
-| `harvest` | tree/iron entity → Resource |
-| `plant` | wood or TREE block → TREE + harvestable entity |
-| `build` / `deconstruct` | wood ↔ hut |
-| `craft` | pack recipe transform |
-| `pickup` / `open` / `close` / `descend` / `ascend` | items, doors, stairs |
-| `attack` | melee (not sandbox focus) |
+| `dig` | hard rock → pack |
+| `scoop` | soft surface → pack |
+| `place` | pack terrain → cell |
+| `harvest` / `plant` / `build` / `deconstruct` | resources & huts |
+| `craft` | pack recipe (needs `recipe`) |
+| `pickup` / `open` / `close` / `descend` / `ascend` / `attack` | as labeled |
 
-If `verb` omitted, kernel picks by priority (harvest/pickup before dig/scoop/craft).
+---
 
 ## Pack (Matter)
 
 ```
 Terrain{feat} | Resource{wood|iron} | Object{...}
-me.pack[] = {slot, qty, label, matter}   # truth
-me.wood / me.iron                        # sums only
+self.pack[] = {slot, qty, label, matter}
+self.wood / self.iron = sums only
 ```
 
-Cannot place non-walkable under self. Permanent walls immutable.
-
-## Craft recipes
-
-Live list: `GET /api/actions`. Common ids:
-
-`plank_door` (2 wood→door) · `sapling` (1 wood→TREE) · `compact_rock` (2 rubble→granite) · `crush_rock` · `ore_vein` · `mountain` (3 granite) · `smelt_iron` · `chop_wood` · `fill_floor` · `deep_pool` · `dirt_from_rubble` · …
-
-```json
-{"type":"interact","dx":0,"dy":0,"verb":"craft","recipe":"plank_door"}
-```
-
-## Goal recipes
-
-**Corridor:** move until `dig` offered → dig → optional place elsewhere  
-**Door:** harvest wood → craft `plank_door` → place  
-**Grove:** harvest → plant on dirt/floor → harvest later  
-**Reshape floor:** scoop surfaces → craft/place desired feat  
+---
 
 ## Decision flow
 
 ```
-interactions empty? → move toward goals / open space
-else → pick interaction matching goal (copy dx,dy,verb,slot,recipe exactly)
-     → POST /api/action
-     → GET /api/me; check recent_events (dug|scooped|placed|crafted|action_rejected)
+view
+  inbox non-empty? → consider message (trust is your problem)
+  can.interactions match goal? → act interact (copy fields exactly)
+  else need approach? → act move using view.map / landmarks / entities
+  else → act rest | idle
+view again (check events)
 ```
 
-## Common mistakes
+---
 
-| wrong | right |
-|-------|--------|
-| `{"type":"dig"}` | `interact` + `verb:"dig"` |
-| craft without `recipe` | pass recipe id |
-| place with empty pack | dig/scoop/craft first |
-| invent `mine`/`build_wall` | only five action types |
-| spam same tick | wait next me tick |
-| mock still moving you | `human_control: true` |
+## Messages (optional social)
+
+Others may `POST /api/message` to your id if they can see you. You receive text in `view.inbox` (also flat `messages`). Decide trust yourself (passphrase/IP in text); kernel only enforces visibility.
+
+---
+
+## Contract (hard rules)
+
+1. Runtime loop = **view + act** only (register once)  
+2. Action types: `move | interact | drop | rest | idle` only  
+3. Never invent verbs/recipes — use `can.interactions`  
+4. Never write the grid via API  
+5. Prefer token over raw agent_id  
+6. Navigate with **`view`**, not only `adjacent`  
 
 ## Red flags
 
-Inventing actions/verbs/recipes · ignoring `interactions[]` · writing grid via API · treating `items` strings as mutable state · combat-first when task is world-building
+Inventing actions · ignoring interactions · treating pack labels as mutable · using snapshot for agent brain · combat-first when task is building  
 
 ## Code map
 
-`sandbox.rs` rules/recipes · `systems/interact.rs` · `systems/dig.rs` · `systems/craft.rs` · `components.rs` Matter · `serve.rs` HTTP
+`serve.rs` routes · `vision.rs` FOV · `systems/interact.rs` options · `sandbox.rs` recipes · `art.rs` presentation (not for agents)

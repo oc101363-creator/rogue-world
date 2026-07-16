@@ -246,20 +246,33 @@ pub async fn run_server(port: u16, tick_ms: u64, cfg: Config) -> Result<()> {
     let static_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("static");
     let index = static_dir.join("index.html");
 
+    // API surface (layered):
+    //   Agent loop:   POST /api/register · GET /api/view · POST /api/act · GET /api/catalog
+    //   Social:       POST /api/message  (inbox appears in view)
+    //   Spectator:    GET /api/snapshot · /api/track · /api/agents · /api/entity · /api/cell · WS /ws
+    //   Presentation: GET /api/art
+    //   Ops:          GET /api/status · POST /api/control
+    // Legacy aliases keep old clients working: /api/me, /api/action, /api/actions
     let app = Router::new()
-        .route("/api/status", get(api_status))
-        .route("/api/snapshot", get(api_snapshot))
-        .route("/api/actions", get(api_actions))
+        // --- agent core ---
+        .route("/api/register", post(api_register))
+        .route("/api/view", get(api_me))
+        .route("/api/act", post(api_action))
+        .route("/api/catalog", get(api_actions))
+        .route("/api/message", post(api_message_send))
+        // --- legacy aliases ---
         .route("/api/me", get(api_me))
         .route("/api/action", post(api_action))
-        .route("/api/control", post(api_control))
-        .route("/api/register", post(api_register))
+        .route("/api/actions", get(api_actions))
+        // --- spectator / web ---
+        .route("/api/status", get(api_status))
+        .route("/api/snapshot", get(api_snapshot))
         .route("/api/agents", get(api_agents))
         .route("/api/track", get(api_track))
         .route("/api/entity", get(api_entity))
         .route("/api/cell", get(api_cell))
         .route("/api/art", get(api_art))
-        .route("/api/message", post(api_message_send))
+        .route("/api/control", post(api_control))
         .route("/ws", get(ws_handler))
         .route_service("/", ServeFile::new(index))
         .nest_service("/static", ServeDir::new(static_dir))
@@ -273,11 +286,11 @@ pub async fn run_server(port: u16, tick_ms: u64, cfg: Config) -> Result<()> {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     eprintln!("[ask] http://{addr}/");
-    eprintln!(
-        "[ask] GET  /api/snapshot /api/me /api/actions /api/agents /api/track /api/entity /api/cell /api/art"
-    );
-    eprintln!("[ask] POST /api/register /api/action /api/control /api/message");
-    eprintln!("[ask] WS   /ws");
+    eprintln!("[ask] agent  POST /api/register  GET /api/view  POST /api/act  GET /api/catalog");
+    eprintln!("[ask] social POST /api/message");
+    eprintln!("[ask] spect  GET /api/snapshot /api/track /api/agents /api/entity /api/cell /api/art");
+    eprintln!("[ask] ops    GET /api/status  POST /api/control  WS /ws");
+    eprintln!("[ask] legacy GET /api/me  POST /api/action  GET /api/actions");
     eprintln!("[ask] tick {tick_ms}ms");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -327,6 +340,7 @@ async fn api_snapshot(
 }
 
 async fn api_actions() -> impl IntoResponse {
+    // GET /api/catalog (alias: /api/actions) — cold reference data, not per-tick.
     Json(serde_json::json!({
         "ok": true,
         "actions": Action::catalog(),
@@ -335,12 +349,19 @@ async fn api_actions() -> impl IntoResponse {
             "pickup","open","close","descend","ascend","attack"
         ],
         "recipes": ask_kernel_recipes(),
-        "auth": {
-            "register": "POST /api/register {name, purpose} → {token, agent_id}",
-            "act": "POST /api/action {token, action}",
-            "track": "GET /api/track?token=ask1_…",
+        "api": {
+            "register": "POST /api/register {name, purpose?} → {token, agent_id, x, y}",
+            "view": "GET /api/view?token= → {self, view, can, inbox, events}",
+            "act": "POST /api/act {token, action} → {ok, accepted, tick, reason?}",
+            "catalog": "GET /api/catalog → actions/verbs/recipes (cache once)",
+            "message": "POST /api/message {token, targets[], text} → inbox via view",
+            "loop": "register once → view → act → view …",
+            "legacy": {
+                "me": "/api/me ≡ /api/view",
+                "action": "/api/action ≡ /api/act",
+                "actions": "/api/actions ≡ /api/catalog",
+            }
         },
-        "loop": "register → me(token) → interact → events",
     }))
 }
 
@@ -604,9 +625,41 @@ async fn api_me(State(st): State<AppState>, Query(q): Query<MeQuery>) -> impl In
         }
     };
 
+    // Canonical shape for GET /api/view (and legacy /api/me):
+    //   self  — body & inventory
+    //   view  — FOV window (map / entities / landmarks)
+    //   can   — legal near-term interactions
+    //   inbox — unread messages (consumed on read)
+    //   events — recent world events
+    // Flat fields kept as aliases so older clients/skills keep working.
+    let self_body = serde_json::json!({
+        "id": a.id,
+        "name": a.name,
+        "x": x,
+        "y": y,
+        "hp": a.hp,
+        "max_hp": a.max_hp,
+        "wood": a.wood,
+        "iron": a.iron,
+        "items": a.items,
+        "pack": a.pack,
+    });
+    let can = serde_json::json!({
+        "interactions": snap.interactions,
+        "underfoot": { "glyph": underfoot, "vision": vis },
+        "here": here,
+        "adjacent": adj,
+    });
+
     Json(serde_json::json!({
         "ok": true,
         "tick": snap.tick,
+        "self": self_body,
+        "view": view,
+        "can": can,
+        "inbox": messages,
+        "events": snap.recent_events,
+        // --- flat aliases (deprecated, still valid) ---
         "id": a.id,
         "name": a.name,
         "x": x, "y": y,
@@ -617,7 +670,6 @@ async fn api_me(State(st): State<AppState>, Query(q): Query<MeQuery>) -> impl In
         "underfoot": { "glyph": underfoot, "vision": vis },
         "here": here,
         "adjacent": adj,
-        "view": view,
         "interactions": snap.interactions,
         "recent_events": snap.recent_events,
         "messages": messages,
