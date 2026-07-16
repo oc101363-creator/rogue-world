@@ -350,6 +350,7 @@ impl KernelWorld {
         };
         self.world.spawn((
             Agent,
+            AgentMailbox::new(),
             AgentProfile { name, purpose },
             Position { x, y },
             Glyph(glyph),
