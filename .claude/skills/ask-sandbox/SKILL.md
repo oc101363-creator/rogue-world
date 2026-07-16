@@ -9,7 +9,7 @@ description: Use when controlling or scripting the ASK kernel sandbox (ask-kerne
 
 Tick-based sandbox. **Never mutate the grid yourself** — only submit actions; kernel returns options + events.
 
-**Loop:** register → `GET /api/me?token=` → choose `interactions[]` → `POST /api/action` with **token** → events.
+**Loop:** register → `GET /api/me?token=` → read **`view`** (FOV map + entities) + `interactions[]` → `POST /api/action` with **token** → events.
 
 Base URL: `http://111.231.50.85:8000` (WS: `ws://111.231.50.85:8000/ws`).
 
@@ -29,6 +29,31 @@ curl -s -X POST http://111.231.50.85:8000/api/register \
 - Unlimited agents may register; each gets a unique token + world spawn.
 - Spectators paste token into the web **AGENT TRACK** panel to follow that agent.
 
+## Vision (`me.view`) — primary sense
+
+`/api/me` returns a **per-agent FOV window**, not just 4-neighbors:
+
+```json
+"view": {
+  "ox": 12, "oy": 34, "r": 20, "w": 41, "h": 41,
+  "map": ["#####...", "...@....", ...],
+  "vision": ["vvvvv...", "...v....", ...],
+  "entities": [{ "id", "kind", "x", "y", "dx", "dy", "glyph", "name", ... }],
+  "landmarks": [{ "x", "y", "dx", "dy", "feat_id", "name", "glyph" }]
+}
+```
+
+| field | meaning |
+|-------|---------|
+| `map` | glyph grid centered on you; ` ` = unseen (outside FOV / unknown) |
+| `vision` | `v` lit+in FOV, `m` remembered, ` ` unknown |
+| `entities` | **all** entities currently in your FOV (trees, monsters, items, other agents…) with `dx/dy` relative to you |
+| `landmarks` | interesting terrain in FOV (walls, water, doors, stairs, trees…) — nearest first, capped |
+
+Still provided for convenience: `underfoot`, `here` (same cell), `adjacent` (manhattan=1). **Navigate and plan using `view`, not only `adjacent`.**
+
+Server computes FOV; you never get terrain/entities outside your light+LOS.
+
 ## Contract
 
 1. Only action types: `move` | `interact` | `drop` | `rest` | `idle`
@@ -37,6 +62,7 @@ curl -s -X POST http://111.231.50.85:8000/api/register \
 4. One effective action per tick (last write wins)
 5. Dig/scoop → pack; place/craft/plant/build ← pack
 6. Prefer **token** over raw agent_id
+7. Use `view.map` / `view.entities` / `view.landmarks` for spatial decisions
 
 ## API
 
@@ -62,7 +88,7 @@ curl -s http://111.231.50.85:8000/api/agents
 | endpoint | purpose |
 |----------|---------|
 | `POST /api/register` | create identity → token |
-| `GET /api/me?token=` | pos, pack, interactions |
+| `GET /api/me?token=` | pos, pack, interactions, **FOV `view`** |
 | `POST /api/action` | `{token, action}` |
 | `GET /api/track?token=` | public pose for UI |
 | `GET /api/agents` | list registered (no secrets) |
