@@ -676,11 +676,54 @@ function drawSnap(snap) {
         const look = lookForFeat(fid);
         ch = look.glyph || "?";
         fg = materialColor(look.material, theme);
+        // Subtle material backgrounds so the map isn't flat black/white
         bg = theme.void;
-        if (look.material === "aquifer") bg = "#001028";
-        if (look.material === "magma") bg = "#1a0800";
-        if (look.material === "organic") bg = "#0a1008";
-        if (look.material === "granite") bg = "#101010";
+        switch (look.material) {
+          case "aquifer":
+          case "water":
+            bg = "#001028";
+            break;
+          case "water_deep":
+            bg = "#000a20";
+            break;
+          case "magma":
+          case "fire":
+            bg = "#1a0800";
+            break;
+          case "plant":
+          case "organic":
+          case "brake":
+            bg = "#0a1008";
+            break;
+          case "earth":
+          case "wood":
+          case "door":
+            bg = "#120c08";
+            break;
+          case "granite":
+          case "stone_dark":
+          case "stone_light":
+            bg = "#101010";
+            break;
+          case "floor":
+          case "basalt":
+            bg = "#0a0a0c";
+            break;
+          case "gold":
+            bg = "#1a1400";
+            break;
+          case "flower":
+          case "magic":
+          case "crystal":
+            bg = "#100818";
+            break;
+          case "trap":
+          case "blood":
+            bg = "#140808";
+            break;
+          default:
+            bg = theme.void;
+        }
       } else {
         ch = row[wx] || " ";
         const letter = colorRow[wx] || "w";

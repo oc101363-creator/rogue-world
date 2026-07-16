@@ -1,47 +1,87 @@
 # FS-HDG presentation overlay — pure data, never read by systems/*.
-catalog_version = 1
+# catalog_version bumps when materials or overrides change.
+catalog_version = 2
 
 [materials]
-basalt = "#555555"
-granite = "#AAAAAA"
-gold = "#FFD700"
-aquifer = "#0055FF"
-magma = "#FF4500"
-organic = "#8B5A2B"
+# Stone / floor shades (from frog letters + semantics)
 void = "#000000"
-ui_primary = "#00FF66"
-ui_warning = "#FFCC00"
-ui_danger = "#FF3333"
-ui_info = "#00E5FF"
-text_white = "#FFFFFF"
-depth_shadow = "#2A2A2A"
+shadow = "#2a2a2a"
+stone_dark = "#6e6e6e"
+floor = "#9aa3ad"
+stone_light = "#c5cdd6"
+granite = "#a8b0b8"
+crystal = "#9ad0ff"
 
-# Feat id overrides (string keys)
-[feats.96]
-glyph = "♣"
-material = "organic"
+# Nature / fluids
+plant = "#3dcc5a"
+organic = "#7a9a45"
+earth = "#a67c52"
+wood = "#c4a574"
+aquifer = "#2f7bff"
+water = "#3d9eff"
+water_deep = "#1a4fff"
 
-[feats.83]
-glyph = "≈"
-material = "aquifer"
+# Heat / value / magic
+magma = "#ff4500"
+fire = "#ff8c1a"
+blood = "#e03535"
+gold = "#ffd000"
+magic = "#c44cff"
 
-[feats.84]
-glyph = "~"
-material = "aquifer"
+# UI / entities
+ui_primary = "#00ff66"
+ui_warning = "#ffcc00"
+ui_danger = "#ff3333"
+ui_info = "#00e5ff"
+text_white = "#ffffff"
+depth_shadow = "#2a2a2a"
+door = "#d2b48c"
+trap = "#ff6666"
+flower = "#e89ad4"
+brake = "#6b8f3c"
 
-[feats.85]
-glyph = "≈"
-material = "magma"
+# Feat overrides — restore readable variety
+[feats.1]
+material = "floor"
 
-[feats.86]
-glyph = "~"
-material = "magma"
+[feats.2]
+material = "floor"
 
-[feats.88]
-material = "organic"
+[feats.4]
+glyph = "'"
+material = "door"
 
-[feats.89]
-material = "organic"
+[feats.5]
+glyph = "'"
+material = "door"
+
+[feats.32]
+glyph = "+"
+material = "door"
+
+[feats.48]
+glyph = "#"
+material = "door"
+
+[feats.49]
+glyph = ":"
+material = "stone_dark"
+
+[feats.50]
+glyph = "%"
+material = "gold"
+
+[feats.51]
+glyph = "%"
+material = "gold"
+
+[feats.54]
+glyph = "*"
+material = "gold"
+
+[feats.55]
+glyph = "*"
+material = "gold"
 
 [feats.56]
 material = "granite"
@@ -54,3 +94,49 @@ material = "granite"
 
 [feats.59]
 material = "granite"
+
+[feats.60]
+material = "stone_light"
+
+[feats.83]
+glyph = "≈"
+material = "water_deep"
+
+[feats.84]
+glyph = "~"
+material = "water"
+
+[feats.85]
+glyph = "≈"
+material = "magma"
+
+[feats.86]
+glyph = "~"
+material = "fire"
+
+[feats.88]
+material = "earth"
+
+[feats.89]
+material = "plant"
+
+[feats.93]
+glyph = ":"
+material = "flower"
+
+[feats.94]
+glyph = ":"
+material = "brake"
+
+[feats.96]
+glyph = "♣"
+material = "plant"
+
+[feats.97]
+material = "granite"
+
+[feats.16]
+material = "trap"
+
+[feats.17]
+material = "trap"

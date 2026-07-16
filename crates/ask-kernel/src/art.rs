@@ -19,6 +19,8 @@ const OVERLAY_TOML: &str = include_str!("../data/art/fs_hdg_overlay.toml");
 pub struct FeatLook {
     pub glyph: char,
     pub material: String,
+    /// Original frog color letter — keeps 16-color variety when material is generic.
+    pub color: char,
     pub layer: u8,
     pub name: String,
 }
@@ -35,7 +37,7 @@ pub struct EntityLook {
 pub struct ArtCatalog {
     pub catalog_version: u32,
     pub materials: HashMap<String, String>,
-    /// JSON object keys will be stringified feat ids.
+    /// JSON object keys are stringified feat ids.
     pub feats: HashMap<String, FeatLook>,
     pub races: HashMap<String, EntityLook>,
     pub objects: HashMap<String, EntityLook>,
@@ -57,49 +59,117 @@ struct OverlayFeat {
     layer: Option<u8>,
 }
 
-fn baseline_material(info: &FeatInfo) -> &'static str {
-    let up = info.name.to_ascii_uppercase();
-    if info.lava || up.contains("LAVA") {
-        "magma"
-    } else if info.water || up.contains("WATER") {
-        "aquifer"
-    } else if info.tree || up.contains("TREE") {
-        "organic"
-    } else if up.contains("GOLD") || up.contains("TREASURE") || up.contains("VEIN") {
-        "gold"
-    } else if info.wall
-        || up.contains("GRANITE")
-        || up.contains("QUARTZ")
-        || up.contains("RUBBLE")
-        || up.contains("WALL")
-        || up.contains("MOUNTAIN")
-    {
-        "granite"
-    } else if up.contains("DIRT") || up.contains("GRASS") || up.contains("SOIL") || up.contains("MUD")
-    {
-        "organic"
-    } else {
-        "basalt"
+/// Map frog 16-color letters to distinct materials so the map keeps variety.
+fn material_from_color(c: char) -> &'static str {
+    match c {
+        'D' => "void",
+        'd' => "shadow",
+        's' => "stone_dark",
+        'w' => "floor",
+        'W' => "stone_light",
+        'g' | 'G' | 'L' => "plant",
+        'b' | 'B' => "water",
+        'r' | 'R' => "blood",
+        'o' => "fire",
+        'y' => "gold",
+        'u' => "earth",
+        'U' => "wood",
+        'v' => "magic",
+        // frog sometimes emits non-standard letters (seen as 'h' in wild maps)
+        'h' | 'H' => "crystal",
+        _ => "basalt",
     }
+}
+
+fn baseline_material(info: &FeatInfo) -> &'static str {
+    // Semantic flags win first — these must read instantly.
+    if info.lava {
+        return "magma";
+    }
+    if info.water {
+        return "aquifer";
+    }
+    if info.tree {
+        return "plant";
+    }
+    if info.door {
+        return "door";
+    }
+    if info.trap {
+        return "trap";
+    }
+    if info.wall {
+        // walls keep stone family but follow frog shade when possible
+        return match info.color {
+            's' | 'd' | 'D' => "stone_dark",
+            'w' | 'W' => "granite",
+            'u' | 'U' => "earth",
+            'g' | 'G' => "plant",
+            _ => "granite",
+        };
+    }
+
+    let up = info.name.to_ascii_uppercase();
+    if up.contains("FLOWER") {
+        return "flower";
+    }
+    if up.contains("BRAKE") || up.contains("BUSH") {
+        return "brake";
+    }
+    if up.contains("GOLD") || up.contains("TREASURE") || up.contains("VEIN") {
+        return "gold";
+    }
+    if up.contains("DIRT") || up.contains("SOIL") || up.contains("MUD") {
+        return "earth";
+    }
+    if up.contains("GRASS") {
+        return "plant";
+    }
+    if up.contains("FLOOR") || up.contains("INVIS") || up.contains("OPEN") {
+        // floors: keep shade from frog letter for variety
+        return material_from_color(info.color);
+    }
+
+    // Everything else: preserve frog color diversity instead of collapsing to basalt.
+    material_from_color(info.color)
 }
 
 fn build_catalog() -> ArtCatalog {
     let overlay: OverlayFile = toml::from_str(OVERLAY_TOML).expect("parse art overlay");
     let mut materials = overlay.materials;
+
+    // Full FS-HDG + frog-letter material set (richer than 6 buckets).
     for (k, v) in [
-        ("basalt", "#555555"),
-        ("granite", "#AAAAAA"),
-        ("gold", "#FFD700"),
-        ("aquifer", "#0055FF"),
-        ("magma", "#FF4500"),
-        ("organic", "#8B5A2B"),
         ("void", "#000000"),
-        ("ui_primary", "#00FF66"),
-        ("ui_warning", "#FFCC00"),
-        ("ui_danger", "#FF3333"),
-        ("ui_info", "#00E5FF"),
-        ("text_white", "#FFFFFF"),
-        ("depth_shadow", "#2A2A2A"),
+        ("shadow", "#2a2a2a"),
+        ("stone_dark", "#6e6e6e"),
+        ("floor", "#8b93a0"),
+        ("stone_light", "#c5cdd6"),
+        ("granite", "#a8b0b8"),
+        ("crystal", "#9ad0ff"),
+        ("plant", "#3dcc5a"),
+        ("organic", "#7a9a45"),
+        ("earth", "#a67c52"),
+        ("wood", "#c4a574"),
+        ("door", "#d2b48c"),
+        ("aquifer", "#2f7bff"),
+        ("water", "#3d9eff"),
+        ("water_deep", "#1a4fff"),
+        ("magma", "#ff4500"),
+        ("fire", "#ff8c1a"),
+        ("blood", "#e03535"),
+        ("gold", "#ffd000"),
+        ("magic", "#c44cff"),
+        ("trap", "#ff6666"),
+        ("flower", "#e89ad4"),
+        ("brake", "#6b8f3c"),
+        ("basalt", "#707884"),
+        ("ui_primary", "#00ff66"),
+        ("ui_warning", "#ffcc00"),
+        ("ui_danger", "#ff3333"),
+        ("ui_info", "#00e5ff"),
+        ("text_white", "#ffffff"),
+        ("depth_shadow", "#2a2a2a"),
     ] {
         materials.entry(k.into()).or_insert_with(|| v.into());
     }
@@ -113,6 +183,7 @@ fn build_catalog() -> ArtCatalog {
         let mut look = FeatLook {
             glyph: info.glyph,
             material: baseline_material(info).into(),
+            color: info.color,
             layer: 0,
             name: info.name.clone(),
         };
@@ -167,7 +238,7 @@ fn build_catalog() -> ArtCatalog {
         "tree".into(),
         EntityLook {
             glyph: '♣',
-            material: "organic".into(),
+            material: "plant".into(),
             name: None,
         },
     );
@@ -175,7 +246,7 @@ fn build_catalog() -> ArtCatalog {
         "iron".into(),
         EntityLook {
             glyph: 'I',
-            material: "granite".into(),
+            material: "stone_light".into(),
             name: None,
         },
     );
@@ -237,17 +308,21 @@ mod tests {
         let c = catalog();
         let floor = c.feats.get("1").expect("FLOOR id 1");
         assert_eq!(floor.glyph, '.');
-        assert!(!floor.material.is_empty());
+        assert_eq!(floor.material, "floor");
         let gran = c.feats.get("56").expect("GRANITE id 56");
         assert_eq!(gran.material, "granite");
     }
 
     #[test]
-    fn overlay_tree_glyph() {
+    fn overlay_tree_and_doors_keep_variety() {
         let c = catalog();
         let tree = c.feats.get("96").expect("TREE");
         assert_eq!(tree.glyph, '♣');
-        assert_eq!(tree.material, "organic");
+        assert_eq!(tree.material, "plant");
+        let door = c.feats.get("32").expect("CLOSED_DOOR");
+        assert_eq!(door.material, "door");
+        let gold = c.feats.get("51").expect("QUARTZ_VEIN");
+        assert_eq!(gold.material, "gold");
     }
 
     #[test]
