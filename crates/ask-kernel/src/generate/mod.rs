@@ -386,12 +386,13 @@ fn place_biomes(feats: &mut [u16], w: i32, h: i32, rng: &mut Rng) {
                     continue;
                 }
                 // denser core, softer rim
-                let p = if d < 0.55 {
-                    92
-                } else if d < 0.85 {
-                    70
+                // High fill so biomes read as solid fields, not speckles
+                let p = if d < 0.6 {
+                    97
+                } else if d < 0.88 {
+                    88
                 } else {
-                    40
+                    65
                 };
                 if rng.percent(p) {
                     feats[i] = biome;
@@ -682,12 +683,8 @@ fn bake_base(cave: &Cave, rng: &mut Rng) -> Vec<u16> {
         for x in 0..w {
             let i = (y * w + x) as usize;
             feats[i] = match cave.get(x, y) {
-                Cell::Room => match rng.randint0(100) {
-                    0..=6 => id::DIRT,
-                    7..=12 => id::GRASS,
-                    13..=15 => id::BRAKE,
-                    _ => id::FLOOR,
-                },
+                // Keep room/tunnel floors uniform; contiguous grass/dirt come from place_biomes.
+                Cell::Room => id::FLOOR,
                 Cell::Tunnel => id::FLOOR,
                 // Outer treated as piled rock (same family as solid), not a distinct wireframe
                 Cell::Outer | Cell::Inner | Cell::Solid => match rng.randint0(100) {
@@ -775,9 +772,10 @@ fn place_lakes(feats: &mut [u16], w: i32, h: i32, rooms: &[Room], rng: &mut Rng)
     let area = w * h;
     let n = (area / 14_000).clamp(3, 8);
     for li in 0..n {
-        let kind = if rng.percent(70) {
+        // Prefer water lakes; lava is rare so it doesn't freckle the map
+        let kind = if rng.percent(82) {
             0 // water
-        } else if rng.percent(50) {
+        } else if rng.percent(40) {
             1 // lava
         } else {
             2 // rubble hollow
@@ -868,12 +866,13 @@ fn place_lakes(feats: &mut [u16], w: i32, h: i32, rooms: &[Room], rng: &mut Rng)
 /// Continuous wide rivers (1–3 guaranteed on large maps).
 fn place_rivers(feats: &mut [u16], w: i32, h: i32, rng: &mut Rng) {
     let n_rivers = if w * h > 40_000 {
-        rng.rand_range(1, 4)
+        rng.rand_range(1, 3)
     } else {
         1
     };
     for ri in 0..n_rivers {
-        let water = ri == 0 || rng.percent(75);
+        // Almost always water; lava river is a rare event
+        let water = ri == 0 || rng.percent(90);
         let deep = if water {
             id::DEEP_WATER
         } else {
