@@ -272,8 +272,8 @@ pub async fn run_server(port: u16, tick_ms: u64, cfg: Config) -> Result<()> {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     eprintln!("[ask] http://{addr}/");
-    eprintln!("[ask] GET  /api/snapshot /api/me /api/actions /api/agents /api/track");
-    eprintln!("[ask] POST /api/register /api/action /api/control");
+    eprintln!("[ask] GET  /api/snapshot /api/me /api/actions /api/agents /api/track /api/entity /api/cell");
+    eprintln!("[ask] POST /api/register /api/action /api/control /api/message");
     eprintln!("[ask] WS   /ws");
     eprintln!("[ask] tick {tick_ms}ms");
 
@@ -411,35 +411,50 @@ async fn api_me(State(st): State<AppState>, Query(q): Query<MeQuery>) -> impl In
                 .map(|(e, _)| e)
         };
         if let Some(entity) = agent_entity {
-            let unread = {
-                let mb = sim
-                    .kernel
-                    .world
-                    .get::<crate::components::AgentMailbox>(entity);
-                mb.map(|m| {
-                    m.unread()
-                        .iter()
-                        .map(|env| {
-                            serde_json::json!({
-                                "id": env.id,
-                                "from": env.from,
-                                "text": env.text,
-                                "sent_tick": env.sent_tick,
-                            })
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
+            let Some(mb) = sim
+                .kernel
+                .world
+                .get::<crate::components::AgentMailbox>(entity)
+            else {
+                return Json(serde_json::json!({
+                    "ok": true,
+                    "tick": snap.tick,
+                    "id": a.id,
+                    "name": a.name,
+                    "x": x, "y": y,
+                    "hp": a.hp, "max_hp": a.max_hp,
+                    "wood": a.wood, "iron": a.iron,
+                    "items": a.items,
+                    "pack": a.pack,
+                    "underfoot": { "glyph": underfoot, "vision": vis },
+                    "here": here,
+                    "adjacent": adj,
+                    "interactions": snap.interactions,
+                    "recent_events": snap.recent_events,
+                    "messages": Vec::<serde_json::Value>::new(),
+                }));
             };
-            let ids: Vec<u64> = unread.iter().map(|v| v["id"].as_u64().unwrap_or(0)).collect();
-            if let Some(mut mb) = sim
+            let unread: Vec<&crate::components::Envelope> = mb.unread();
+            let ids: Vec<u64> = unread.iter().map(|env| env.id).collect();
+            let values: Vec<serde_json::Value> = unread
+                .iter()
+                .map(|env| {
+                    serde_json::json!({
+                        "id": env.id,
+                        "from": env.from,
+                        "text": env.text,
+                        "sent_tick": env.sent_tick,
+                    })
+                })
+                .collect();
+            if let Some(mut mb_mut) = sim
                 .kernel
                 .world
                 .get_mut::<crate::components::AgentMailbox>(entity)
             {
-                mb.mark_read(&ids);
+                mb_mut.mark_read(&ids);
             }
-            unread
+            values
         } else {
             Vec::new()
         }
@@ -635,7 +650,7 @@ async fn api_message_send(
             reason: Some("empty text".into()),
         });
     }
-    if text.len() > MAX_LEN {
+    if text.encode_utf16().count() > MAX_LEN {
         return Json(MessageSendResponse {
             ok: false,
             sent: 0,
@@ -662,30 +677,22 @@ async fn api_message_send(
     let sender_ip = addr.ip().to_string();
     let tick = sim.kernel.tick();
 
-    // Acquire a contiguous id range.
-    let base_id = {
-        let mut counter = sim.kernel.world.resource_mut::<crate::components::MessageCounter>();
-        let id = counter.0;
-        counter.0 += req.targets.len() as u64;
-        id
+    // Build a StableId -> (Entity, Position) map once.
+    let agents: std::collections::HashMap<u64, (Entity, i32, i32)> = {
+        let mut q = sim
+            .kernel
+            .world
+            .query::<(Entity, &StableId, &Position, &Agent)>();
+        q.iter(&sim.kernel.world)
+            .map(|(e, sid, p, _)| (sid.0, (e, p.x, p.y)))
+            .collect()
     };
 
     let mut sent = 0;
     let mut rejected = 0;
-    let mut next_id = base_id;
 
     for target_id in req.targets {
-        let found = {
-            let mut q = sim
-                .kernel
-                .world
-                .query::<(Entity, &StableId, &Position, &Agent)>();
-            q.iter(&sim.kernel.world)
-                .find(|(_, sid, _, _)| sid.0 == target_id)
-                .map(|(e, _, p, _)| (e, p.x, p.y))
-        };
-
-        let Some((entity, x, y)) = found else {
+        let Some((entity, x, y)) = agents.get(&target_id).copied() else {
             rejected += 1;
             continue;
         };
@@ -695,6 +702,13 @@ async fn api_message_send(
             continue;
         }
 
+        let id = {
+            let mut counter = sim.kernel.world.resource_mut::<crate::components::MessageCounter>();
+            let id = counter.0;
+            counter.0 += 1;
+            id
+        };
+
         let Some(mut mailbox) = sim.kernel.world.get_mut::<crate::components::AgentMailbox>(entity)
         else {
             rejected += 1;
@@ -702,13 +716,12 @@ async fn api_message_send(
         };
 
         mailbox.push(crate::components::Envelope {
-            id: next_id,
+            id,
             from: sender_ip.clone(),
             text: text.clone(),
             sent_tick: tick,
             read: false,
         });
-        next_id += 1;
         sent += 1;
     }
 
