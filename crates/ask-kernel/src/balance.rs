@@ -16,6 +16,8 @@ pub const PLAYER_MELEE_DAMAGE: i32 = 3;
 
 // --- recovery ---
 pub const REST_HEAL: i32 = 1;
+/// Rest heal multiplier when on/adjacent to a hut (shelter).
+pub const HUT_REST_MULT: i32 = 2;
 
 // --- monster AI ---
 pub const MONSTER_CHASE_RANGE: i32 = 8;

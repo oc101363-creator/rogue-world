@@ -73,6 +73,22 @@ pub fn apply_pickup(world: &mut World, agent: Entity) {
 
 pub fn apply_rest(world: &mut World, agent: Entity) {
     let eid = stable_id(world, agent);
+    let Some(pos) = world.get::<Position>(agent).copied() else {
+        return;
+    };
+    let sheltered = crate::spatial::any_at(world, pos.x, pos.y, |w, e| {
+        w.get::<crate::components::Building>(e).is_some()
+    }) || [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|&(dx, dy)| {
+        crate::spatial::any_at(world, pos.x + dx, pos.y + dy, |w, e| {
+            w.get::<crate::components::Building>(e).is_some()
+        })
+    });
+    let heal = crate::balance::REST_HEAL
+        * if sheltered {
+            crate::balance::HUT_REST_MULT
+        } else {
+            1
+        };
     let (healed, hp, max_hp) = {
         let Some(mut h) = world.get_mut::<crate::components::Health>(agent) else {
             world
@@ -86,8 +102,8 @@ pub fn apply_rest(world: &mut World, agent: Entity) {
         if h.hp >= h.max_hp {
             (0, h.hp, h.max_hp)
         } else {
-            h.hp = (h.hp + crate::balance::REST_HEAL).min(h.max_hp);
-            (crate::balance::REST_HEAL, h.hp, h.max_hp)
+            h.hp = (h.hp + heal).min(h.max_hp);
+            (heal, h.hp, h.max_hp)
         }
     };
     world.resource_mut::<EventBuf>().push(GameEvent::Rested {

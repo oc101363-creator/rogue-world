@@ -1266,3 +1266,34 @@ fn ascend_at_surface_rejected_and_teleport_trap_teleports() {
     );
     let _ = sid;
 }
+
+#[test]
+fn rest_near_hut_heals_double() {
+    use ask_kernel::components::{Building, StableId};
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 71;
+    let mut kw = KernelWorld::new(&cfg);
+    let agent = kw.agent_entity().unwrap();
+    let floor = find_open_floor(&mut kw, 3);
+    set_pos(&mut kw, agent, floor);
+    kw.world.get_mut::<Health>(agent).unwrap().hp = 10;
+
+    // no hut: plain rest
+    kw.world.resource_mut::<ActionQueue>().push(agent, Action::Rest);
+    apply_actions_system(&mut kw.world);
+    assert_eq!(kw.world.get::<Health>(agent).unwrap().hp, 11);
+
+    // with a hut adjacent: double
+    kw.world.spawn((
+        Position { x: floor.0 + 1, y: floor.1 },
+        Glyph('H'),
+        Building,
+        StableId(99911),
+    ));
+    kw.world.resource_mut::<ActionQueue>().push(agent, Action::Rest);
+    apply_actions_system(&mut kw.world);
+    assert_eq!(kw.world.get::<Health>(agent).unwrap().hp, 13, "hut shelter should double rest");
+}
