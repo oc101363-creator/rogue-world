@@ -89,7 +89,13 @@ pub fn process_monsters_system(world: &mut World) {
         let nx = pos.x + dx;
         let ny = pos.y + dy;
 
-        if !world.resource::<Grid>().walkable(nx, ny) {
+        let dest = world.resource::<Grid>().get(nx, ny).unwrap_or(0);
+        let swim_ok = world
+            .get::<Monster>(mon_e)
+            .and_then(|m| crate::r_info::table().get(m.race_id))
+            .map(|r| r.can_swim && dest == crate::f_info::id::DEEP_WATER)
+            .unwrap_or(false);
+        if !world.resource::<Grid>().walkable(nx, ny) && !swim_ok {
             continue;
         }
         if f_info::table().is_closed_door(world.resource::<Grid>().get(nx, ny).unwrap_or(0)) {
@@ -127,7 +133,18 @@ pub fn monster_move_to(world: &mut World, mon_e: Entity, nx: i32, ny: i32) {
             to: (nx, ny),
         });
 
-    crate::systems::terrain::on_enter_cell(world, mon_e, nx, ny);
+    let (can_swim, res_fire) = world
+        .get::<Monster>(mon_e)
+        .and_then(|m| crate::r_info::table().get(m.race_id))
+        .map(|r| (r.can_swim, r.res_fire))
+        .unwrap_or((false, false));
+    let feat = world.resource::<Grid>().get(nx, ny).unwrap_or(0);
+    let info = crate::f_info::table().get(feat);
+    let lava_immune = res_fire && info.map(|f| f.lava).unwrap_or(false);
+    let water_immune = can_swim && feat == crate::f_info::id::DEEP_WATER;
+    if !lava_immune && !water_immune {
+        crate::systems::terrain::on_enter_cell(world, mon_e, nx, ny);
+    }
 
     // terrain death
     let dead = world.get::<Health>(mon_e).map(|h| h.hp <= 0).unwrap_or(false);

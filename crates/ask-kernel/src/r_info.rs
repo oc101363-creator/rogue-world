@@ -16,6 +16,9 @@ pub struct MonsterRace {
     pub hp: Option<i32>,
     /// Melee damage (first B: blow dice average; None when unparseable).
     pub damage: Option<i32>,
+    /// F: line flags we act on (parse more as needed).
+    pub can_swim: bool,
+    pub res_fire: bool,
 }
 
 /// "4d6" → average 14 (n*(d+1)/2, rounded). Deterministic on purpose.
@@ -100,6 +103,8 @@ fn parse() -> MonsterTable {
     let mut color = 'w';
     let mut hp: Option<i32> = None;
     let mut damage: Option<i32> = None;
+    let mut can_swim = false;
+    let mut res_fire = false;
 
     let flush = |t: &mut MonsterTable,
                  id: u16,
@@ -107,7 +112,9 @@ fn parse() -> MonsterTable {
                  glyph: char,
                  color: char,
                  hp: Option<i32>,
-                 damage: Option<i32>| {
+                 damage: Option<i32>,
+                 can_swim: bool,
+                 res_fire: bool| {
         if id == 0 {
             return; // player
         }
@@ -118,6 +125,8 @@ fn parse() -> MonsterTable {
             color,
             hp,
             damage,
+            can_swim,
+            res_fire,
         };
         let idx = id as usize;
         if t.by_id.len() <= idx {
@@ -143,11 +152,15 @@ fn parse() -> MonsterTable {
                     color,
                     hp,
                     damage,
+                    can_swim,
+                    res_fire,
                 );
                 glyph = '?';
                 color = 'w';
                 hp = None;
                 damage = None;
+                can_swim = false;
+                res_fire = false;
             }
             // N:id:name
             let mut parts = rest.splitn(2, ':');
@@ -177,10 +190,20 @@ fn parse() -> MonsterTable {
                     }
                 }
             }
+        } else if let Some(rest) = line.strip_prefix("F:") {
+            for flag in rest.split('|') {
+                match flag.trim() {
+                    "CAN_SWIM" => can_swim = true,
+                    "RES_FIRE" => res_fire = true,
+                    _ => {}
+                }
+            }
         }
     }
     if let Some(id) = cur_id.take() {
-        flush(&mut t, id, cur_name, glyph, color, hp, damage);
+        flush(
+            &mut t, id, cur_name, glyph, color, hp, damage, can_swim, res_fire,
+        );
     }
     t
 }
@@ -207,6 +230,12 @@ mod tests {
         assert_eq!(t.get(1).and_then(|r| r.hp), Some(3));
         assert_eq!(t.get(50).and_then(|r| r.hp), Some(14));
         assert_eq!(t.get(50).and_then(|r| r.damage), Some(4));
+        // Salamander F: lines carry CAN_SWIM (line 1) and RES_FIRE (line 2)
+        let sal = t.get(50).expect("race 50");
+        assert!(sal.can_swim && sal.res_fire);
+        // a flag-less race stays false
+        let urchin = t.get(1).expect("race 1");
+        assert!(!urchin.can_swim && !urchin.res_fire);
         // most races carry hp now
         let with_hp = t.iter().filter(|(_, r)| r.hp.is_some()).count();
         assert!(with_hp > 500, "with_hp={with_hp}");

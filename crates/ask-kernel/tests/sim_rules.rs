@@ -1183,3 +1183,33 @@ fn monsters_die_on_lava_and_emit_kill_event() {
         "expected MonsterKilled event"
     );
 }
+
+#[test]
+fn salamander_swims_and_ignores_lava() {
+    use ask_kernel::components::{Monster, StableId};
+
+    // race 50 Salamander has CAN_SWIM | RES_FIRE in r_info.txt
+    let race = ask_kernel::r_info::table().get(50).expect("race 50");
+    assert!(race.can_swim, "CAN_SWIM flag not parsed");
+    assert!(race.res_fire, "RES_FIRE flag not parsed");
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 53;
+    let mut kw = KernelWorld::new(&cfg);
+    let floor = find_open_floor(&mut kw, 4);
+    kw.world
+        .resource_mut::<Grid>()
+        .set(floor.0, floor.1, id::DEEP_LAVA);
+    let e = kw.world.spawn((
+        Position { x: floor.0 + 1, y: floor.1 },
+        Glyph('R'),
+        Monster { race_id: 50, name: "Salamander".into(), color: 'o' },
+        Health { hp: 5, max_hp: 5 },
+        StableId(99903),
+    )).id();
+    ask_kernel::systems::monster_move_to(&mut kw.world, e, floor.0, floor.1);
+    let hp = kw.world.get::<Health>(e).map(|h| h.hp);
+    assert_eq!(hp, Some(5), "RES_FIRE salamander must ignore lava");
+}
