@@ -41,8 +41,11 @@ static/         web client (identity-first render from feat_ids + /api/art)
    task drains into a capped ring; projections read the ring.
 7. **Matter is conserved.** No verb/craft chain may be net-positive on any
    matter kind; natural sources (resource entities, fresh rock) are the only
-   inputs. `place` returns displaced hard rock only. Guarded by
-   `scoop_place_cycle_creates_nothing` and `ore_vein_cycle_cannot_print_iron`.
+   inputs. `place` returns displaced hard rock only; bonus-paying veins
+   crumble; scooping a tree takes its resource. Guarded by
+   `scoop_place_cycle_creates_nothing`, `ore_vein_cycle_cannot_print_iron`,
+   `dig_place_cannot_print_iron`, `craft_chain_never_net_positive`,
+   `plant_scoop_harvest_zero_sum`.
 
 ## Tick phases (sole entry: `Sim::step`)
 

@@ -132,20 +132,22 @@ async fn ws_action_requires_token() {
         .await
         .unwrap();
     }
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let snap = recv_snapshot(&mut ws).await;
-    let me = snap["entities"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e["id"].as_u64() == reg["agent_id"].as_u64())
-        .cloned()
-        .unwrap();
-    assert_eq!(
-        (me["x"].as_i64().unwrap() as i32, me["y"].as_i64().unwrap() as i32),
-        (x0, y0),
-        "tokenless ws action moved the agent"
-    );
+    // assert across several consecutive frames (no stale single frame)
+    for _ in 0..3 {
+        let snap = recv_snapshot(&mut ws).await;
+        let me = snap["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["id"].as_u64() == reg["agent_id"].as_u64())
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            (me["x"].as_i64().unwrap() as i32, me["y"].as_i64().unwrap() as i32),
+            (x0, y0),
+            "tokenless ws action moved the agent"
+        );
+    }
 
     // action WITH token → applied. Try the four directions until one is
     // not blocked by terrain (spawn cells can be walled on some sides).

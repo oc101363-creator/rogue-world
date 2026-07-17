@@ -4,9 +4,8 @@
 use super::Rng;
 use crate::f_info::id;
 use crate::grid::Grid;
-use crate::k_info;
 use crate::r_info;
-use crate::vaults::{SpawnMon, SpawnObj};
+use crate::vaults::SpawnMon;
 
 /// Frog: usually ~14 base + depth noise, scaled for small levels.
 pub fn alloc_monsters(grid: &Grid, depth: u32, rng: &mut Rng, out: &mut Vec<SpawnMon>) {
@@ -47,60 +46,6 @@ pub fn alloc_monsters(grid: &Grid, depth: u32, rng: &mut Rng, out: &mut Vec<Spaw
             glyph: race.glyph,
             color: race.color,
             name: race.name.clone(),
-        });
-        placed += 1;
-    }
-}
-
-/// Frog alloc_object spirit: room + corridor items/gold/food.
-/// Disabled at the call site: k_info items have no use yet — re-enable when they do.
-#[allow(dead_code)]
-pub fn alloc_objects(grid: &Grid, depth: u32, rng: &mut Rng, out: &mut Vec<SpawnObj>) {
-    let table = k_info::table();
-    if table.count() == 0 {
-        return;
-    }
-    // DUN_AMT_ROOM ~7, DUN_AMT_ITEM ~3, gold ~3 + noise
-    let mut ct = 7 + 3 + rng.randint1(5) + (depth as i32 / 5);
-    let area = (grid.width * grid.height) as i32;
-    ct = (ct * area / (66 * 198)).max(6).min(60);
-
-    let mut floors = floor_cells(grid);
-    shuffle(&mut floors, rng);
-
-    let mut placed = 0;
-    let mut fi = 0;
-    while placed < ct && fi < floors.len() {
-        let (x, y) = floors[fi];
-        fi += 1;
-        if out.iter().any(|o| o.x == x && o.y == y) {
-            continue;
-        }
-        let kind = if rng.percent(20) {
-            table
-                .find_name_contains("gold")
-                .or_else(|| table.pick_any(rng.next_u64() as usize))
-        } else if depth <= 15 && rng.percent(15) {
-            table
-                .find_name_contains("light")
-                .or_else(|| table.find_name_contains("torch"))
-                .or_else(|| table.pick_any(rng.next_u64() as usize))
-        } else if rng.percent(20) {
-            table
-                .find_name_contains("food")
-                .or_else(|| table.find_name_contains("ration"))
-                .or_else(|| table.pick_any(rng.next_u64() as usize))
-        } else {
-            table.pick_any(rng.next_u64() as usize)
-        };
-        let Some(kind) = kind else { break };
-        out.push(SpawnObj {
-            x,
-            y,
-            kind_id: kind.id,
-            glyph: kind.glyph,
-            color: kind.color,
-            name: kind.name.clone(),
         });
         placed += 1;
     }

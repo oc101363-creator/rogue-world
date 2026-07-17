@@ -36,7 +36,7 @@ pub fn list_at(world: &mut World, agent: Entity, dx: i32, dy: i32) -> Vec<Intera
             });
         }
         if let Some(r) = world.get::<Resource>(e) {
-            if r.amount > 0 {
+            if r.amount > 0 && underfoot {
                 let kind = match r.kind {
                     crate::components::ResourceKind::Wood => "wood",
                     crate::components::ResourceKind::Iron => "iron",
@@ -52,7 +52,8 @@ pub fn list_at(world: &mut World, agent: Entity, dx: i32, dy: i32) -> Vec<Intera
                 });
             }
         }
-        if let Some(it) = world.get::<Item>(e) {
+        if underfoot {
+            if let Some(it) = world.get::<Item>(e) {
             out.push(Interaction {
                 dx,
                 dy,
@@ -62,6 +63,7 @@ pub fn list_at(world: &mut World, agent: Entity, dx: i32, dy: i32) -> Vec<Intera
                 slot: None,
                 recipe: None,
             });
+            }
         }
         if world.get::<Building>(e).is_some() {
             out.push(Interaction {

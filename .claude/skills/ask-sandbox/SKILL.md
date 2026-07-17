@@ -43,10 +43,6 @@ register (once) → view → act → view → act → …
 | `WS /ws` | live snapshots |
 | `GET /api/status` · `POST /api/control` | ops |
 
-### Legacy aliases (still work)
-
-`/api/me` ≡ `/api/view` · `/api/action` ≡ `/api/act` · `/api/actions` ≡ `/api/catalog`
-
 ---
 
 ## 1. Register (once)

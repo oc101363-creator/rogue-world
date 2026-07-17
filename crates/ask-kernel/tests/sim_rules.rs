@@ -918,8 +918,6 @@ fn death_drops_pack_and_respawns_full_hp() {
     let h = kw.world.get::<Health>(e1).unwrap();
     assert_eq!(h.hp, h.max_hp, "respawn must refill hp");
     assert_eq!(kw.world.get::<Inventory>(e1).unwrap().slots.len(), 0, "pack must drop");
-    let p = kw.world.get::<Position>(e1).unwrap();
-    assert!((p.x, p.y) != before_pos || true, "position may change");
     // dropped wood lies on the death cell
     let dropped: u32 = {
         let mut q = kw.world.query::<(&Position, &Item)>();
@@ -1313,8 +1311,6 @@ fn generation_scatters_no_purposeless_items() {
 
 #[test]
 fn dig_place_cannot_print_iron() {
-    use ask_kernel::components::Matter;
-
     let mut cfg = Config::default();
     cfg.width = 88;
     cfg.height = 66;

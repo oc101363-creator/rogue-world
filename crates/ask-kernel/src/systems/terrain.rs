@@ -240,6 +240,17 @@ pub fn apply_use_stairs(world: &mut World, entity: Entity, down: bool) {
         return;
     }
 
+    // one level change per tick (a second stair user would skip a level)
+    if world.get_resource::<PendingLevelChange>().is_some() {
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::ActionRejected {
+                entity: eid,
+                reason: "level_change_pending".into(),
+            });
+        return;
+    }
+
     // depth + seed advance
     let depth = {
         let mut d = world.resource_mut::<Depth>();

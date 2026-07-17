@@ -346,6 +346,8 @@ pub fn next_id(world: &mut World) -> u64 {
 /// Random free (buildable, agent-unoccupied) cell anywhere on the map.
 /// `mix` decorrelates repeated picks (agent id, tick, …).
 /// Shared by spawn paths and the death/respawn system.
+/// NOTE: only agents count as occupants — a teleport/respawn may share a
+/// cell with a monster or item (roguelike-tolerable by design).
 pub fn random_free_cell(world: &mut World, mix: u64) -> Option<(i32, i32)> {
     let occupied: Vec<(i32, i32)> = {
         let mut q = world.query_filtered::<&Position, With<Agent>>();

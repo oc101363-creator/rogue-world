@@ -102,8 +102,10 @@ pub fn apply_rest(world: &mut World, agent: Entity) {
         if h.hp >= h.max_hp {
             (0, h.hp, h.max_hp)
         } else {
+            let before = h.hp;
             h.hp = (h.hp + heal).min(h.max_hp);
-            (heal, h.hp, h.max_hp)
+            // report the APPLIED delta, not the attempted heal
+            (h.hp - before, h.hp, h.max_hp)
         }
     };
     world.resource_mut::<EventBuf>().push(GameEvent::Rested {

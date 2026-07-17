@@ -8,8 +8,8 @@ use bevy_ecs::prelude::*;
 use serde_json::json;
 
 use crate::components::{
-    AgentProfile, Building, Glyph, Health, Inventory, Item, Matter, Monster, Position, Resource,
-    ResourceKind, StableId,
+    AgentProfile, Glyph, Health, Inventory, Item, Matter, Monster, Position, Resource, ResourceKind,
+    StableId,
 };
 use crate::f_info;
 use crate::grid::Grid;
@@ -31,87 +31,75 @@ pub fn entity_info(world: &mut World, id: u64) -> Option<serde_json::Value> {
     }
     let (entity, pos, glyph) = found?;
 
+    // ONE classifier (describe) — no per-projection kind logic drift.
+    let kind = crate::describe::EntityKind::classify(world, entity)?;
     let mut base = json!({
         "id": id,
         "x": pos.x,
         "y": pos.y,
         "glyph": glyph.0.to_string(),
+        "kind": kind.as_str(),
     });
 
-    if let Some(profile) = world.get::<AgentProfile>(entity) {
-        base["kind"] = "agent".into();
-        base["name"] = profile.name.clone().into();
-        base["purpose"] = profile.purpose.clone().into();
-        if let Some(inv) = world.get::<Inventory>(entity) {
-            base["pack"] = inv.to_api().into();
+    match kind {
+        crate::describe::EntityKind::Agent => {
+            if let Some(profile) = world.get::<AgentProfile>(entity) {
+                base["name"] = profile.name.clone().into();
+                base["purpose"] = profile.purpose.clone().into();
+            }
+            if let Some(inv) = world.get::<Inventory>(entity) {
+                base["pack"] = inv.to_api().into();
+            }
+            if let Some(hp) = world.get::<Health>(entity) {
+                base["hp"] = hp.hp.into();
+                base["max_hp"] = hp.max_hp.into();
+            }
         }
-        if let Some(hp) = world.get::<Health>(entity) {
-            base["hp"] = hp.hp.into();
-            base["max_hp"] = hp.max_hp.into();
-        }
-        return Some(base);
-    }
-
-    if let Some(mon) = world.get::<Monster>(entity) {
-        base["kind"] = "monster".into();
-        base["name"] = mon.name.clone().into();
-        base["race_id"] = mon.race_id.into();
-        if let Some(hp) = world.get::<Health>(entity) {
-            base["hp"] = hp.hp.into();
-            base["max_hp"] = hp.max_hp.into();
-        }
-        if let Some(race) = r_info::table().get(mon.race_id) {
-            base["source"] = json!({
-                "id": race.id,
-                "name": race.name,
-                "glyph": race.glyph.to_string(),
-                "color": race.color.to_string(),
-            });
-        }
-        return Some(base);
-    }
-
-    if let Some(item) = world.get::<Item>(entity) {
-        base["kind"] = "item".into();
-        base["name"] = item.name().into();
-        base["qty"] = item.qty.into();
-        if let Matter::Object { kind_id, .. } = &item.matter {
-            base["kind_id"] = (*kind_id).into();
-            if let Some(obj) = k_info::table().get(*kind_id) {
+        crate::describe::EntityKind::Monster => {
+            let mon = world.get::<Monster>(entity).unwrap();
+            base["name"] = mon.name.clone().into();
+            base["race_id"] = mon.race_id.into();
+            if let Some(hp) = world.get::<Health>(entity) {
+                base["hp"] = hp.hp.into();
+                base["max_hp"] = hp.max_hp.into();
+            }
+            if let Some(race) = r_info::table().get(mon.race_id) {
                 base["source"] = json!({
-                    "id": obj.id,
-                    "name": obj.name,
-                    "glyph": obj.glyph.to_string(),
-                    "color": obj.color.to_string(),
+                    "id": race.id,
+                    "name": race.name,
+                    "glyph": race.glyph.to_string(),
+                    "color": race.color.to_string(),
                 });
             }
         }
-        return Some(base);
-    }
-
-    if let Some(res) = world.get::<Resource>(entity) {
-        base["kind"] = match res.kind {
-            ResourceKind::Wood => "tree",
-            ResourceKind::Iron => "iron",
+        crate::describe::EntityKind::Item => {
+            let item = world.get::<Item>(entity).unwrap();
+            base["name"] = item.name().into();
+            base["qty"] = item.qty.into();
+            if let Matter::Object { kind_id, .. } = &item.matter {
+                base["kind_id"] = (*kind_id).into();
+                if let Some(obj) = k_info::table().get(*kind_id) {
+                    base["source"] = json!({
+                        "id": obj.id,
+                        "name": obj.name,
+                        "glyph": obj.glyph.to_string(),
+                        "color": obj.color.to_string(),
+                    });
+                }
+            }
         }
-        .into();
-        base["resource"] = match res.kind {
-            ResourceKind::Wood => "wood",
-            ResourceKind::Iron => "iron",
+        crate::describe::EntityKind::Tree | crate::describe::EntityKind::Iron => {
+            let res = world.get::<Resource>(entity).unwrap();
+            base["resource"] = match res.kind {
+                ResourceKind::Wood => "wood".into(),
+                ResourceKind::Iron => "iron".into(),
+            };
+            base["amount"] = res.amount.into();
         }
-        .into();
-        base["amount"] = res.amount.into();
-        return Some(base);
+        crate::describe::EntityKind::Hut => {
+            base["name"] = "hut".into();
+        }
     }
-
-    if world.get::<Building>(entity).is_some() {
-        base["kind"] = "hut".into();
-        base["name"] = "hut".into();
-        return Some(base);
-    }
-
-    // Unknown entity type: still return position + glyph.
-    base["kind"] = "unknown".into();
     Some(base)
 }
 
