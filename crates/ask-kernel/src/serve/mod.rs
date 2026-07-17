@@ -368,9 +368,11 @@ pub(crate) fn build_snapshot_for_tokens(
 
     let ids: Vec<u64> = tokens.iter().filter_map(|t| reg.resolve_token(t)).collect();
     if ids.is_empty() {
+        // No valid token: dark snapshot AND no events (they leak remote
+        // positions/identities).
         let grid = world.resource::<Grid>();
         let dark = VisionMap::new(grid.width, grid.height);
-        return build_viewer_snapshot_with(world, recent_events, &dark, Some(&[]), None);
+        return build_viewer_snapshot_with(world, &[], &dark, Some(&[]), None);
     }
 
     let mut agent_entities = Vec::new();
@@ -387,7 +389,13 @@ pub(crate) fn build_snapshot_for_tokens(
     let focus_id = focus_token
         .and_then(|t| reg.resolve_token(t))
         .or(ids.first().copied());
-    build_viewer_snapshot_with(world, recent_events, &vis, Some(&ids), focus_id)
+    // Events filtered to what the tracked union may learn (FOV + focus self).
+    let filtered: Vec<crate::events::GameEvent> = recent_events
+        .iter()
+        .filter(|ev| crate::events::event_visible(ev, &vis, focus_id))
+        .cloned()
+        .collect();
+    build_viewer_snapshot_with(world, &filtered, &vis, Some(&ids), focus_id)
 }
 
 #[cfg(test)]

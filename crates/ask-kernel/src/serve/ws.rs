@@ -34,9 +34,10 @@ async fn client_ws(mut socket: WebSocket, st: AppState) {
                     let snap = if tokens.is_empty() {
                         let grid = sim.kernel.world.resource::<Grid>();
                         let dark = VisionMap::new(grid.width, grid.height);
+                        // unsubscribed: dark map AND no event feed
                         build_viewer_snapshot_with(
                             &mut sim.kernel.world,
-                            &recent,
+                            &[],
                             &dark,
                             Some(&[]),
                             None,

@@ -89,7 +89,11 @@ pub fn build_viewer_snapshot_with(
             for (i, &c) in grid.cells.iter().enumerate() {
                 let x = (i as i32) % w;
                 let y = (i as i32) / w;
-                m.push(if vis.display_class(x, y) == 0 { 0 } else { c });
+                m.push(match vis.display_class(x, y) {
+                    0 => 0,                        // unknown: masked
+                    1 => vis.feats[i],             // memory: remembered feat only
+                    _ => c,                        // visible: live terrain
+                });
             }
             m
         };
@@ -112,16 +116,19 @@ pub fn build_viewer_snapshot_with(
                     _ => ' ',
                 });
                 match class {
-                    0 => {
-                        // unexplored — darkness glyph
-                        row.push(' ');
+                    1 => {
+                        // remembered terrain AS REMEMBERED (never live edits)
+                        let id = vis.feats[(y * w + x) as usize];
+                        let info = table.get(id);
+                        row.push(info.map(|f| f.glyph).unwrap_or(' '));
                     }
-                    1 | 2 => {
+                    2 => {
                         let id = grid.cells[(y * w + x) as usize];
                         let info = table.get(id);
                         row.push(info.map(|f| f.glyph).unwrap_or('?'));
                     }
                     _ => {
+                        // unexplored — darkness glyph
                         row.push(' ');
                     }
                 }
@@ -163,21 +170,31 @@ pub fn build_viewer_snapshot_with(
         }
     }
     entities.sort_by_key(|e| e.id);
-    let focused_agent_id =
-        focus_agent_id.or_else(|| entities.iter().find(|e| e.kind == "agent").map(|e| e.id));
+    // Focus must come from the caller (their token). Falling back to "the
+    // first agent in the snapshot" leaks that agent's options to any watcher.
+    let focused_agent_id = focus_agent_id;
 
-    // Discover interactions for focused agent (data-driven options)
+    // Interactions exist only for a legitimately focused agent (their token
+    // is in the allowed set, or the internal unrestricted path). Dark
+    // snapshots get none.
     let interactions = {
-        let agent_e = {
-            let mut q = world.query_filtered::<(Entity, &StableId), With<Agent>>();
-            let want = focused_agent_id;
-            q.iter(world)
-                .find(|(_, sid)| want.map(|id| sid.0 == id).unwrap_or(true))
-                .map(|(e, _)| e)
-        };
-        agent_e
-            .map(|e| interact::list_nearby(world, e))
-            .unwrap_or_default()
+        let legit = focused_agent_id
+            .map(|id| allowed_agents.map(|a| a.contains(&id)).unwrap_or(true))
+            .unwrap_or(false);
+        if !legit {
+            Vec::new()
+        } else {
+            let agent_e = {
+                let mut q = world.query_filtered::<(Entity, &StableId), With<Agent>>();
+                let want = focused_agent_id;
+                q.iter(world)
+                    .find(|(_, sid)| want.map(|id| sid.0 == id).unwrap_or(false))
+                    .map(|(e, _)| e)
+            };
+            agent_e
+                .map(|e| interact::list_nearby(world, e))
+                .unwrap_or_default()
+        }
     };
 
     ViewerSnapshot {

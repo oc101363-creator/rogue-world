@@ -258,13 +258,14 @@ pub fn apply_use_stairs(world: &mut World, entity: Entity, down: bool) {
         s.0
     };
 
+    // NOTE: no seed in the event — with a deterministic generator the seed
+    // IS the map, and events reach FOV-gated clients.
     world
         .resource_mut::<EventBuf>()
         .push(GameEvent::LevelChanged {
             entity: eid,
             down,
             depth,
-            seed,
         });
 
     // Signal tick loop to rebuild (see tick.rs)

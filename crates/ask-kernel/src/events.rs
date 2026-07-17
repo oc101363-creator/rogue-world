@@ -65,7 +65,6 @@ pub enum GameEvent {
         entity: u64,
         down: bool,
         depth: u32,
-        seed: u64,
     },
     MonsterMoved {
         entity: u64,
@@ -171,5 +170,45 @@ impl EventBuf {
 
     pub fn drain(&mut self) -> Vec<GameEvent> {
         std::mem::take(&mut self.events)
+    }
+}
+
+/// FOV-gate for event feeds: may `self_sid` learn of `ev` given visibility
+/// `vis`? Rules: TickStarted is pure noise (never shown); entity-bearing
+/// events are visible iff they concern the recipient; location-bearing
+/// events are visible iff the place is visible/remembered; variants with
+/// both pass on either.
+pub fn event_visible(ev: &GameEvent, vis: &crate::vision::VisionMap, self_sid: Option<u64>) -> bool {
+    let is_self = |e: u64| self_sid.map(|s| s == e).unwrap_or(false);
+    let at_seen = |at: (i32, i32)| vis.display_class(at.0, at.1) > 0;
+    match ev {
+        GameEvent::TickStarted { .. } => false,
+        GameEvent::Moved { entity, .. } => is_self(*entity),
+        GameEvent::MoveFailed { entity, .. } => is_self(*entity),
+        GameEvent::Harvested { entity, .. } => is_self(*entity),
+        GameEvent::ResourceDepleted { .. } => false,
+        GameEvent::Built { builder, at } => is_self(*builder) || at_seen(*at),
+        GameEvent::BuildFailed { entity, .. } => is_self(*entity),
+        GameEvent::ActionRejected { entity, .. } => is_self(*entity),
+        GameEvent::TrapTriggered { entity, at, .. } => is_self(*entity) || at_seen(*at),
+        GameEvent::TerrainDamage { entity, .. } => is_self(*entity),
+        GameEvent::DoorOpened { at, .. } => at_seen(*at),
+        GameEvent::DoorClosed { at, .. } => at_seen(*at),
+        GameEvent::LevelChanged { entity, .. } => is_self(*entity),
+        GameEvent::MonsterMoved { from, to, .. } => at_seen(*from) || at_seen(*to),
+        GameEvent::MonsterAttacked { target, .. } => is_self(*target),
+        GameEvent::PlayerAttacked { entity, at, .. } => is_self(*entity) || at_seen(*at),
+        GameEvent::MonsterKilled { entity, at, .. } => is_self(*entity) || at_seen(*at),
+        GameEvent::ItemPickedUp { entity, at, .. } => is_self(*entity) || at_seen(*at),
+        GameEvent::ItemDropped { entity, at, .. } => is_self(*entity) || at_seen(*at),
+        GameEvent::Rested { entity, .. } => is_self(*entity),
+        GameEvent::Dug { at, .. } => at_seen(*at),
+        GameEvent::Placed { at, .. } => at_seen(*at),
+        GameEvent::Scooped { at, .. } => at_seen(*at),
+        GameEvent::Crafted { entity, .. } => is_self(*entity),
+        GameEvent::Planted { at, .. } => at_seen(*at),
+        GameEvent::Deconstructed { at, .. } => at_seen(*at),
+        GameEvent::AgentDied { entity, at } => is_self(*entity) || at_seen(*at),
+        GameEvent::AgentRespawned { entity, at } => is_self(*entity) || at_seen(*at),
     }
 }

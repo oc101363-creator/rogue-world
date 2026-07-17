@@ -39,6 +39,9 @@ pub struct VisionMap {
     pub height: i32,
     /// Per-cell flags: VIEW | MARK | LITE | GLOW
     pub flags: Vec<u8>,
+    /// Terrain identity per cell: live feat where VIEW, remembered feat
+    /// where only MARK (fog never shows live edits). 0 = nothing known.
+    pub feats: Vec<u16>,
 }
 
 /// Room-light mask — independent of the union `VisionMap` so per-agent views
@@ -79,6 +82,7 @@ impl VisionMap {
             width,
             height,
             flags: vec![0; (width * height) as usize],
+            feats: vec![0; (width * height) as usize],
         }
     }
 
@@ -93,6 +97,7 @@ impl VisionMap {
             width,
             height,
             flags,
+            feats: vec![0; (width * height) as usize],
         }
     }
 
@@ -425,6 +430,8 @@ pub fn update_view(world: &mut World) {
             if f & F_VIEW == 0 {
                 continue;
             }
+            // live terrain identity for visible cells
+            vis.feats[i] = grid.get(x, y).unwrap_or(0);
             let lit = f & (F_LITE | F_GLOW) != 0;
             if !lit {
                 continue;
@@ -435,6 +442,7 @@ pub fn update_view(world: &mut World) {
             let feat = grid.get(x, y).unwrap_or(0);
             if table.remember(feat) || table.allows_los(feat) || lit {
                 vis.flags[i] |= F_MARK;
+                vis.feats[i] = feat;
             }
         }
     }
@@ -463,7 +471,8 @@ pub fn update_agent_memories(world: &mut World) {
         for cy in y0..=y1 {
             for cx in x0..=x1 {
                 if fov.is_visible(cx, cy) {
-                    mem.mark(cx, cy);
+                    let feat = grid.get(cx, cy).unwrap_or(0);
+                    mem.mark(cx, cy, feat);
                 }
             }
         }
@@ -495,13 +504,25 @@ pub fn compute_view_for_agents(world: &World, agents: &[Entity]) -> VisionMap {
             for x in x0..=x1 {
                 let i = (y * grid.width + x) as usize;
                 out.flags[i] |= fov.flags[i] & (F_VIEW | F_LITE);
+                // live terrain identity only where actually VISIBLE (VIEW+lit);
+                // unlit-but-in-range cells must keep their remembered feat
+                if fov.is_visible(x, y) {
+                    out.feats[i] = grid.cells[i];
+                }
             }
         }
         // Memory: full-map OR (remembered cells legitimately span the map).
+        // Remembered feat applies only where not currently VIEW.
         if let Some(mem) = world.get::<VisionMemory>(e) {
             for i in 0..out.flags.len() {
                 if mem.flags[i] & F_MARK != 0 {
                     out.flags[i] |= F_MARK;
+                    if !out.is_visible(
+                        (i as i32) % out.width,
+                        (i as i32) / out.width,
+                    ) {
+                        out.feats[i] = mem.feats[i];
+                    }
                 }
             }
         }
@@ -548,6 +569,52 @@ mod tests {
             height: h,
             cells,
         }
+    }
+
+    #[test]
+    fn memory_keeps_remembered_feat_after_grid_changes() {
+        // agent sees the granite wall from (6,4), then walks to (0,0) where
+        // (6,6) is out of torch light → memory-only cell
+        let w = 7;
+        let h = 7;
+        let mut cells = vec![crate::f_info::id::FLOOR; (w * h) as usize];
+        cells[(6 * w + 6) as usize] = crate::f_info::id::GRANITE;
+        let grid = Grid {
+            width: w,
+            height: h,
+            cells: cells.clone(),
+        };
+        let glow = GlowMask::new(w, h);
+        let mut world = World::new();
+        world.insert_resource(grid.clone());
+        world.insert_resource(glow);
+        let e = world
+            .spawn((
+                crate::components::Agent,
+                Position { x: 6, y: 4 },
+                crate::components::VisionMemory::new(w, h),
+            ))
+            .id();
+        update_agent_memories(&mut world);
+        // sanity: the wall is marked as remembered GRANITE
+        assert_eq!(
+            world.get::<crate::components::VisionMemory>(e).unwrap().feat(6, 6),
+            Some(crate::f_info::id::GRANITE)
+        );
+        // agent walks away; the wall is dug out remotely
+        world.get_mut::<Position>(e).unwrap().x = 0;
+        world.get_mut::<Position>(e).unwrap().y = 0;
+        world
+            .resource_mut::<Grid>()
+            .set(6, 6, crate::f_info::id::FLOOR);
+        let vis = compute_view_for_agents(&world, &[e]);
+        // memory cell: remembered GRANITE, not live FLOOR
+        assert_eq!(vis.display_class(6, 6), 1);
+        assert_eq!(
+            vis.feats[(6 * w + 6) as usize],
+            crate::f_info::id::GRANITE,
+            "fog must show remembered terrain, not live edits"
+        );
     }
 
     #[test]

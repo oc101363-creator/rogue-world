@@ -65,7 +65,12 @@ pub fn build_agent_view(
                 mrow.push(' ');
                 continue;
             }
-            let feat_id = cells[(wy * grid_w + wx) as usize];
+            // memory cells show the REMEMBERED feat (never live edits)
+            let feat_id = if class == 1 {
+                vis.feats[(wy * grid_w + wx) as usize]
+            } else {
+                cells[(wy * grid_w + wx) as usize]
+            };
             let info = table.get(feat_id);
             let glyph = info.map(|f| f.glyph).unwrap_or('?');
             mrow.push(glyph);
@@ -178,6 +183,13 @@ pub fn build_agent_view(
         }
     }
 
+    // --- events: only what THIS agent may learn (FOV + self) ---
+    let filtered_events: Vec<GameEvent> = recent_events
+        .iter()
+        .filter(|ev| crate::events::event_visible(ev, &vis, Some(sid)))
+        .cloned()
+        .collect();
+
     // --- inbox (consumed on read) ---
     let inbox: Vec<serde_json::Value> = {
         let unread_info: Vec<(u64, String, String, u64)> = world
@@ -228,6 +240,6 @@ pub fn build_agent_view(
             "adjacent": adjacent,
         },
         "inbox": inbox,
-        "events": recent_events,
+        "events": filtered_events,
     }))
 }

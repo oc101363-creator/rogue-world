@@ -274,12 +274,15 @@ impl Health {
 }
 
 /// Per-agent explored-cell memory (server-side truth; never sent raw to clients).
+/// MARK flag per cell + the feat id AS REMEMBERED — fog never shows live edits.
 #[derive(Component, Clone, Debug, Serialize, Deserialize)]
 pub struct VisionMemory {
     pub width: i32,
     pub height: i32,
     /// Only MARK flag is meaningful here.
     pub flags: Vec<u8>,
+    /// Remembered feat per cell (valid where MARK is set).
+    pub feats: Vec<u16>,
 }
 
 impl VisionMemory {
@@ -288,6 +291,7 @@ impl VisionMemory {
             width,
             height,
             flags: vec![0; (width * height) as usize],
+            feats: vec![0; (width * height) as usize],
         }
     }
 
@@ -299,9 +303,10 @@ impl VisionMemory {
         }
     }
 
-    pub fn mark(&mut self, x: i32, y: i32) {
+    pub fn mark(&mut self, x: i32, y: i32, feat: u16) {
         if let Some(i) = self.idx(x, y) {
             self.flags[i] |= crate::vision::F_MARK;
+            self.feats[i] = feat;
         }
     }
 
@@ -309,6 +314,15 @@ impl VisionMemory {
         self.idx(x, y)
             .map(|i| self.flags[i] & crate::vision::F_MARK != 0)
             .unwrap_or(false)
+    }
+
+    /// Remembered feat id at (x, y) — Some only where the cell is marked.
+    pub fn feat(&self, x: i32, y: i32) -> Option<u16> {
+        if self.is_mark(x, y) {
+            self.idx(x, y).map(|i| self.feats[i])
+        } else {
+            None
+        }
     }
 }
 
