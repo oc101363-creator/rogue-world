@@ -1310,3 +1310,171 @@ fn generation_scatters_no_purposeless_items() {
     let scattered = level.items.len();
     assert_eq!(scattered, 0, "random item scatter must stop (items: {scattered})");
 }
+
+#[test]
+fn dig_place_cannot_print_iron() {
+    use ask_kernel::components::Matter;
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 91;
+    let mut kw = KernelWorld::new(&cfg);
+    let agent = kw.agent_entity().unwrap();
+    let floor = find_open_floor(&mut kw, 3);
+    set_pos(&mut kw, agent, floor);
+    // a treasure vein adjacent
+    kw.world
+        .resource_mut::<Grid>()
+        .set(floor.0 + 1, floor.1, id::MAGMA_TREASURE);
+
+    // dig it: +1 iron, and the block is RUBBLE (vein crumbles), NOT the treasure
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 1,
+            dy: 0,
+            verb: Some("dig".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    let inv = kw.world.get::<Inventory>(agent).unwrap();
+    assert_eq!(inv.iron(), 1, "dig bonus iron");
+    assert_eq!(inv.qty_terrain(id::MAGMA_TREASURE), 0, "treasure block must not re-enter the pack");
+    assert!(inv.qty_terrain(id::RUBBLE) >= 1, "crumbled vein leaves rubble");
+
+    // place the dig result underfoot, dig again: iron total must not grow
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("place".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("scoop".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    let inv = kw.world.get::<Inventory>(agent).unwrap();
+    assert_eq!(inv.iron(), 1, "iron grew — fountain still open");
+}
+
+#[test]
+fn craft_chain_never_net_positive() {
+    use ask_kernel::components::Matter;
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 93;
+    let mut kw = KernelWorld::new(&cfg);
+    let agent = kw.agent_entity().unwrap();
+    kw.world
+        .get_mut::<Inventory>(agent)
+        .unwrap()
+        .add(Matter::Resource { resource: ResourceKind::Wood }, 1);
+
+    for recipe in ["sapling", "chop_wood"] {
+        kw.world.resource_mut::<ActionQueue>().push(
+            agent,
+            Action::Interact {
+                dx: 0,
+                dy: 0,
+                verb: Some("craft".into()),
+                slot: None,
+                recipe: Some(recipe.into()),
+            },
+        );
+        apply_actions_system(&mut kw.world);
+    }
+    let inv = kw.world.get::<Inventory>(agent).unwrap();
+    assert!(inv.wood() <= 1, "sapling→chop printed wood: {}", inv.wood());
+    assert_eq!(inv.wood(), 1, "chain should be zero-sum");
+}
+
+#[test]
+fn plant_scoop_harvest_zero_sum() {
+    use ask_kernel::components::{Matter, Resource};
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 95;
+    let mut kw = KernelWorld::new(&cfg);
+    let agent = kw.agent_entity().unwrap();
+    let floor = find_open_floor(&mut kw, 3);
+    set_pos(&mut kw, agent, floor);
+    kw.world
+        .resource_mut::<Grid>()
+        .set(floor.0, floor.1, id::DIRT);
+    kw.world
+        .get_mut::<Inventory>(agent)
+        .unwrap()
+        .add(Matter::Resource { resource: ResourceKind::Wood }, 4);
+
+    // plant: -2 wood, TREE feat + Resource{Wood,2}
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("plant".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    assert_eq!(kw.world.get::<Inventory>(agent).unwrap().wood(), 2);
+
+    // scoop the TREE: block into pack, and the resource entity must be GONE
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("scoop".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    let res_left = {
+        let mut q = kw.world.query::<(&Position, &Resource)>();
+        q.iter(&kw.world)
+            .any(|(p, _)| p.x == floor.0 && p.y == floor.1)
+    };
+    assert!(!res_left, "scoop TREE must consume the wood resource entity");
+    let verbs: Vec<String> = ask_kernel::systems::interact::list_at(&mut kw.world, agent, 0, 0)
+        .into_iter()
+        .map(|i| i.verb)
+        .collect();
+    assert!(!verbs.iter().any(|v| v == "harvest"), "harvest must not be offered");
+
+    // chop the block (1 wood after C1.2) — total ≤ initial 4
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("craft".into()),
+            slot: None,
+            recipe: Some("chop_wood".into()),
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    let wood = kw.world.get::<Inventory>(agent).unwrap().wood();
+    assert!(wood <= 4, "plant→scoop→harvest printed wood: {wood}");
+}

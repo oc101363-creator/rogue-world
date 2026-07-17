@@ -291,7 +291,7 @@ pub fn recipes() -> &'static [Recipe] {
             id: "chop_wood",
             name: "wood",
             needs: &[RecipeNeed::Terrain(id::TREE, 1)],
-            output: RecipeOut::Resource(ResourceKind::Wood, 2),
+            output: RecipeOut::Resource(ResourceKind::Wood, 1),
         },
         Recipe {
             id: "lava_cool",

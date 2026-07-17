@@ -2,7 +2,7 @@
 
 use bevy_ecs::prelude::*;
 
-use crate::components::{Inventory, Matter, Position, ResourceKind};
+use crate::components::{Inventory, Matter, Position, Resource, ResourceKind};
 use crate::events::{EventBuf, GameEvent};
 use crate::grid::Grid;
 use crate::sandbox::{self, can_place_on};
@@ -63,11 +63,32 @@ fn apply_extract(world: &mut World, agent: Entity, dx: i32, dy: i32, mode: Extra
         return;
     };
 
+    // Conservation: a vein that pays bonus ore CRUMBLES — the pack gets
+    // rubble, never the treasure block itself (dig → place → re-dig printed
+    // iron forever; the block must leave the economy).
+    let block_feat = if rule.bonus_iron > 0 {
+        crate::f_info::id::RUBBLE
+    } else {
+        feat
+    };
+
+    // Scooping a tree takes the WHOLE tree: the co-located wood resource
+    // goes too, or plant → scoop → harvest double-dips the same tree.
+    if matches!(mode, ExtractMode::Scoop) && feat == crate::f_info::id::TREE {
+        if let Some(res_e) = crate::spatial::find_at(world, tx, ty, |w, e| {
+            w.get::<Resource>(e)
+                .map(|r| r.kind == ResourceKind::Wood)
+                .unwrap_or(false)
+        }) {
+            world.despawn(res_e);
+        }
+    }
+
     // scoop underfoot OK even if result walkable; dig never underfoot
     world.resource_mut::<Grid>().set(tx, ty, rule.leave);
 
     if let Some(mut inv) = world.get_mut::<Inventory>(agent) {
-        inv.add(Matter::Terrain { feat }, 1);
+        inv.add(Matter::Terrain { feat: block_feat }, 1);
         if rule.bonus_iron > 0 {
             inv.add(
                 Matter::Resource {
