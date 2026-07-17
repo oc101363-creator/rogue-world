@@ -25,6 +25,7 @@ use self::movement::apply_move;
 
 pub use self::death::check_deaths_system as check_deaths;
 pub use self::items::pickup_items_system as pickup_items;
+pub use self::monster::monster_move_to;
 pub use self::monster::process_monsters_system as process_monsters;
 
 pub fn apply_actions_system(world: &mut World) {

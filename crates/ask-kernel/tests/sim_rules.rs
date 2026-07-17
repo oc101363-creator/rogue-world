@@ -1125,3 +1125,61 @@ fn ore_vein_cycle_cannot_print_iron() {
         .sum();
     assert!(iron_cost >= 3, "ore_vein costs {iron_cost} iron < 3 — iron printing");
 }
+
+#[test]
+fn monsters_suffer_terrain_too() {
+    use ask_kernel::components::{Monster, StableId};
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 51;
+    let mut kw = KernelWorld::new(&cfg);
+    let floor = find_open_floor(&mut kw, 4);
+    // trap on an open cell; monster next to it, agent far away (out of chase)
+    kw.world
+        .resource_mut::<Grid>()
+        .set(floor.0, floor.1, id::TRAP_FIRE);
+    let e = kw.world.spawn((
+        Position { x: floor.0 + 1, y: floor.1 },
+        Glyph('o'),
+        Monster { race_id: 1, name: "sacrificial rat".into(), color: 'r' },
+        Health { hp: 2, max_hp: 2 },
+        StableId(99901),
+    )).id();
+    // force-walk the monster onto the trap cell by simulating its move
+    // (process_monsters wanders deterministically; instead apply the same
+    // post-move rule directly: move + on_enter_cell via a helper)
+    ask_kernel::systems::monster_move_to(&mut kw.world, e, floor.0, floor.1);
+    let hp = kw.world.get::<Health>(e).map(|h| h.hp);
+    assert_eq!(hp, None, "monster should have died on TRAP_FIRE (2hp vs 4 dmg)");
+}
+
+#[test]
+fn monsters_die_on_lava_and_emit_kill_event() {
+    use ask_kernel::components::{Monster, StableId};
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 52;
+    let mut kw = KernelWorld::new(&cfg);
+    let floor = find_open_floor(&mut kw, 4);
+    kw.world
+        .resource_mut::<Grid>()
+        .set(floor.0, floor.1, id::DEEP_LAVA);
+    let e = kw.world.spawn((
+        Position { x: floor.0 + 1, y: floor.1 },
+        Glyph('o'),
+        Monster { race_id: 1, name: "lava rat".into(), color: 'r' },
+        Health { hp: 5, max_hp: 5 },
+        StableId(99902),
+    )).id();
+    ask_kernel::systems::monster_move_to(&mut kw.world, e, floor.0, floor.1);
+    assert!(kw.world.get::<Health>(e).is_none(), "lava should kill 5hp rat");
+    let evs = kw.world.resource_mut::<EventBuf>().drain();
+    assert!(
+        evs.iter().any(|ev| matches!(ev, GameEvent::MonsterKilled { name, .. } if name == "lava rat")),
+        "expected MonsterKilled event"
+    );
+}

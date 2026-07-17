@@ -2,8 +2,9 @@
 //!
 //! An agent whose hp reaches 0 drops every pack stack on the spot, then
 //! respawns at a random free cell with full hp and an empty pack.
-//! Monsters are only slain via combat (see combat.rs); this system is
-//! about keeping agents alive *as persistent identities* across death.
+//! Monsters are slain via combat (combat.rs) or terrain (monster.rs);
+//! this system is about keeping agents alive *as persistent identities*
+//! across death.
 
 use bevy_ecs::prelude::*;
 

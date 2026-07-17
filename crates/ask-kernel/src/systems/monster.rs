@@ -104,17 +104,46 @@ pub fn process_monsters_system(world: &mut World) {
             continue;
         }
 
-        let mid = stable_id(world, mon_e);
-        if let Some(mut p) = world.get_mut::<Position>(mon_e) {
-            p.x = nx;
-            p.y = ny;
-        }
+        monster_move_to(world, mon_e, nx, ny);
+    }
+}
+
+/// Move a monster onto (nx, ny) and apply THE SAME terrain rules agents get
+/// (traps, lava, deep water). If the terrain kills it, despawn + event.
+pub fn monster_move_to(world: &mut World, mon_e: Entity, nx: i32, ny: i32) {
+    let Some(pos) = world.get::<Position>(mon_e).copied() else {
+        return;
+    };
+    if let Some(mut p) = world.get_mut::<Position>(mon_e) {
+        p.x = nx;
+        p.y = ny;
+    }
+    let mid = stable_id(world, mon_e);
+    world
+        .resource_mut::<EventBuf>()
+        .push(GameEvent::MonsterMoved {
+            entity: mid,
+            from: (pos.x, pos.y),
+            to: (nx, ny),
+        });
+
+    crate::systems::terrain::on_enter_cell(world, mon_e, nx, ny);
+
+    // terrain death
+    let dead = world.get::<Health>(mon_e).map(|h| h.hp <= 0).unwrap_or(false);
+    if dead {
+        let name = world
+            .get::<Monster>(mon_e)
+            .map(|m| m.name.clone())
+            .unwrap_or_else(|| "monster".into());
+        world.despawn(mon_e);
         world
             .resource_mut::<EventBuf>()
-            .push(GameEvent::MonsterMoved {
-                entity: mid,
-                from: (pos.x, pos.y),
-                to: (nx, ny),
+            .push(GameEvent::MonsterKilled {
+                entity: 0, // no killer — the world did it
+                monster: mid,
+                name,
+                at: (nx, ny),
             });
     }
 }
