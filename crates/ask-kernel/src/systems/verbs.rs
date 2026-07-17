@@ -151,6 +151,12 @@ pub fn registry() -> &'static [VerbSpec] {
                 None => reject(w, a, "craft_needs_recipe"),
             },
         },
+        VerbSpec {
+            verb: "use",
+            priority: 14,
+            doc: "use a pack block (slot=index): ignite flammable / eat organic",
+            apply: |w, a, c| crate::systems::use_item::apply_use(w, a, c.slot, c.dx, c.dy),
+        },
     ]
 }
 

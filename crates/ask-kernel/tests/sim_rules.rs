@@ -1547,3 +1547,62 @@ fn plant_with_block_is_zero_sum() {
     assert!(wood <= 2, "sapling→plant→harvest printed wood: {wood}");
     assert_eq!(wood, 2, "cycle should be exactly zero-sum, got {wood}");
 }
+
+#[test]
+fn use_ignites_wood_and_eats_grass() {
+    use ask_kernel::components::Matter;
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 131;
+    let mut kw = KernelWorld::new(&cfg);
+    let agent = kw.agent_entity().unwrap();
+    let floor = find_open_floor(&mut kw, 3);
+    set_pos(&mut kw, agent, floor);
+    kw.world
+        .resource_mut::<Grid>()
+        .set(floor.0 + 1, floor.1, id::TREE);
+    kw.world
+        .get_mut::<Inventory>(agent)
+        .unwrap()
+        .add(Matter::Resource { resource: ResourceKind::Wood }, 2);
+
+    // ignite adjacent tree with a wood block
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 1,
+            dy: 0,
+            verb: Some("use".into()),
+            slot: Some(0),
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    assert_eq!(
+        kw.world.resource::<Grid>().get(floor.0 + 1, floor.1),
+        Some(id::FIRE),
+        "wood block should ignite the tree"
+    );
+
+    // eat a grass block for hp
+    kw.world.get_mut::<Health>(agent).unwrap().hp = 10;
+    kw.world
+        .get_mut::<Inventory>(agent)
+        .unwrap()
+        .add(Matter::Terrain { feat: id::GRASS }, 1);
+    let grass_slot = kw.world.get::<Inventory>(agent).unwrap().slots.len() - 1;
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("use".into()),
+            slot: Some(grass_slot),
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    assert_eq!(kw.world.get::<Health>(agent).unwrap().hp, 11);
+}

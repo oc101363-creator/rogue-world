@@ -171,6 +171,37 @@ pub fn list_at(world: &mut World, agent: Entity, dx: i32, dy: i32) -> Vec<Intera
                 }
             }
         }
+        // use: ignite offers for flammable blocks (adjacent), eat offers (underfoot)
+        for (si, stack) in inv.slots.iter().enumerate() {
+            let (flammable, organic) = match &stack.matter {
+                Matter::Terrain { feat } => (
+                    *feat == crate::f_info::id::TREE,
+                    *feat == crate::f_info::id::GRASS || *feat == crate::f_info::id::BRAKE,
+                ),
+                Matter::Resource { resource } => {
+                    (*resource == crate::components::ResourceKind::Wood, false)
+                }
+                _ => (false, false),
+            };
+            let label = if flammable && !underfoot {
+                Some(format!("ignite with {}", stack.matter.label()))
+            } else if organic && underfoot {
+                Some(format!("eat {}", stack.matter.label()))
+            } else {
+                None
+            };
+            if let Some(label) = label {
+                out.push(Interaction {
+                    dx,
+                    dy,
+                    verb: "use".into(),
+                    label,
+                    target_id: None,
+                    slot: Some(si),
+                    recipe: None,
+                });
+            }
+        }
     }
 
     if can_plant(world, agent)
