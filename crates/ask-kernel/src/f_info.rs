@@ -178,6 +178,7 @@ pub mod id {
     pub const BRAKE: u16 = 94;
     pub const TREE: u16 = 96;
     pub const MOUNTAIN: u16 = 97;
+    pub const FIRE: u16 = 99;
 
     // Visible traps (f_info N:16–31) — frog place_trap / choose_random_trap
     pub const TRAP_TRAPDOOR: u16 = 16;

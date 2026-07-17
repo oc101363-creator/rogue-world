@@ -50,3 +50,13 @@ fn semantic_flags_match_constants() {
         assert!(t.is_trap(trap), "id {trap} expected trap flag");
     }
 }
+
+#[test]
+fn fire_feat_contract() {
+    let t = table();
+    let f = t.get(id::FIRE).expect("FIRE feat must exist");
+    assert_eq!(f.name, "FIRE");
+    assert!(f.walk, "FIRE is enterable");
+    assert!(f.lava, "FIRE reuses lava damage branch");
+    assert_eq!(f.glyph, '!');
+}
