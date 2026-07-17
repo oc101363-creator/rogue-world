@@ -94,6 +94,8 @@ export function formatEvents(events) {
     else if (t === "rested") pushLog(`休 +${ev.healed} hp=${ev.hp}`);
     else if (t === "agent_died") pushLog(`☠ 倒下 @(${ev.at[0]},${ev.at[1]})`);
     else if (t === "agent_respawned") pushLog(`✚ 重生 @(${ev.at[0]},${ev.at[1]})`);
+    else if (t === "terrain_changed") pushLog(`≋ ${ev.cause} (${ev.at[0]},${ev.at[1]})`);
+    else if (t === "consumed") pushLog(`吃 ${ev.label} hp=${ev.hp}`);
   }
 }
 

@@ -152,6 +152,19 @@ pub enum GameEvent {
         entity: u64,
         at: (i32, i32),
     },
+    /// World process transformed a cell (fire/water/growth).
+    TerrainChanged {
+        at: (i32, i32),
+        from: u16,
+        to: u16,
+        cause: crate::process_rules::Cause,
+    },
+    /// Agent consumed an organic block for hp.
+    Consumed {
+        entity: u64,
+        label: String,
+        hp: i32,
+    },
 }
 
 #[derive(Resource, Default, Debug)]
@@ -210,5 +223,36 @@ pub fn event_visible(ev: &GameEvent, vis: &crate::vision::VisionMap, self_sid: O
         GameEvent::Deconstructed { at, .. } => at_seen(*at),
         GameEvent::AgentDied { entity, at } => is_self(*entity) || at_seen(*at),
         GameEvent::AgentRespawned { entity, at } => is_self(*entity) || at_seen(*at),
+        GameEvent::TerrainChanged { at, .. } => at_seen(*at),
+        GameEvent::Consumed { entity, .. } => is_self(*entity),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vision::VisionMap;
+
+    #[test]
+    fn terrain_changed_visibility_rules() {
+        let mut vis = VisionMap::new(10, 10);
+        vis.flags[(2 * 10 + 3) as usize] = crate::vision::F_VIEW | crate::vision::F_LITE;
+        let ev = GameEvent::TerrainChanged {
+            at: (3, 2),
+            from: 96,
+            to: 99,
+            cause: crate::process_rules::Cause::Fire,
+        };
+        assert!(event_visible(&ev, &vis, None));
+        let far = GameEvent::TerrainChanged {
+            at: (8, 8),
+            from: 96,
+            to: 99,
+            cause: crate::process_rules::Cause::Fire,
+        };
+        assert!(!event_visible(&far, &vis, None));
+        let ate = GameEvent::Consumed { entity: 7, label: "GRASS".into(), hp: 5 };
+        assert!(event_visible(&ate, &vis, Some(7)));
+        assert!(!event_visible(&ate, &vis, Some(8)));
     }
 }
