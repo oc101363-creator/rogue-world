@@ -259,6 +259,11 @@ impl KernelWorld {
 
     fn spawn_monster(&mut self, m: &SpawnMon) -> Entity {
         let id = self.next_id();
+        // Data-driven hp from r_info race; balance constant is the fallback.
+        let hp = crate::r_info::table()
+            .get(m.race_id)
+            .and_then(|r| r.hp)
+            .unwrap_or(crate::balance::MONSTER_HP);
         self.world
             .spawn((
                 Position { x: m.x, y: m.y },
@@ -268,10 +273,7 @@ impl KernelWorld {
                     name: m.name.clone(),
                     color: m.color,
                 },
-                Health {
-                    hp: crate::balance::MONSTER_HP,
-                    max_hp: crate::balance::MONSTER_HP,
-                },
+                Health { hp, max_hp: hp },
                 StableId(id),
             ))
             .id()

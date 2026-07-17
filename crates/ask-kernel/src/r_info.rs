@@ -1,4 +1,6 @@
-//! Minimal frog `r_info.txt` loader — id, name, glyph, color for template MON().
+//! Frog `r_info.txt` loader — identity (id/name/glyph/color) plus combat
+//! stats (I: hit-points dice, first B: damage dice). Dice resolve to their
+//! average so the sim stays deterministic.
 
 use std::sync::OnceLock;
 
@@ -10,6 +12,21 @@ pub struct MonsterRace {
     pub name: String,
     pub glyph: char,
     pub color: char,
+    /// Hit points (dice average from I: line; None when unparseable).
+    pub hp: Option<i32>,
+    /// Melee damage (first B: blow dice average; None when unparseable).
+    pub damage: Option<i32>,
+}
+
+/// "4d6" → average 14 (n*(d+1)/2, rounded). Deterministic on purpose.
+fn dice_avg(s: &str) -> Option<i32> {
+    let (n, d) = s.split_once('d')?;
+    let n: i32 = n.trim().parse().ok()?;
+    let d: i32 = d.trim().parse().ok()?;
+    if n <= 0 || d <= 0 {
+        return None;
+    }
+    Some((n * (d + 1) + 1) / 2)
 }
 
 #[derive(Default)]
@@ -81,8 +98,16 @@ fn parse() -> MonsterTable {
     let mut cur_name = String::new();
     let mut glyph = '?';
     let mut color = 'w';
+    let mut hp: Option<i32> = None;
+    let mut damage: Option<i32> = None;
 
-    let flush = |t: &mut MonsterTable, id: u16, name: String, glyph: char, color: char| {
+    let flush = |t: &mut MonsterTable,
+                 id: u16,
+                 name: String,
+                 glyph: char,
+                 color: char,
+                 hp: Option<i32>,
+                 damage: Option<i32>| {
         if id == 0 {
             return; // player
         }
@@ -91,6 +116,8 @@ fn parse() -> MonsterTable {
             name: name.clone(),
             glyph,
             color,
+            hp,
+            damage,
         };
         let idx = id as usize;
         if t.by_id.len() <= idx {
@@ -108,9 +135,19 @@ fn parse() -> MonsterTable {
         }
         if let Some(rest) = line.strip_prefix("N:") {
             if let Some(id) = cur_id.take() {
-                flush(&mut t, id, std::mem::take(&mut cur_name), glyph, color);
+                flush(
+                    &mut t,
+                    id,
+                    std::mem::take(&mut cur_name),
+                    glyph,
+                    color,
+                    hp,
+                    damage,
+                );
                 glyph = '?';
                 color = 'w';
+                hp = None;
+                damage = None;
             }
             // N:id:name
             let mut parts = rest.splitn(2, ':');
@@ -123,10 +160,27 @@ fn parse() -> MonsterTable {
             let rest = rest.get(1..).unwrap_or("");
             let rest = rest.strip_prefix(':').unwrap_or(rest);
             color = rest.chars().next().unwrap_or('w');
+        } else if let Some(rest) = line.strip_prefix("I:") {
+            // I:speed:hp:vision:ac:alertness:weight — hp may be a dice "4d6"
+            let mut parts = rest.split(':');
+            let _speed = parts.next();
+            if let Some(hp_s) = parts.next() {
+                hp = dice_avg(hp_s).or_else(|| hp_s.trim().parse().ok());
+            }
+        } else if let Some(rest) = line.strip_prefix("B:") {
+            // B:METHOD:EFFECT(dice)… — first blow carrying dice sets damage
+            if damage.is_none() {
+                if let Some(open) = rest.find('(') {
+                    if let Some(close) = rest[open..].find(')') {
+                        let dice = &rest[open + 1..open + close];
+                        damage = dice_avg(dice);
+                    }
+                }
+            }
         }
     }
     if let Some(id) = cur_id.take() {
-        flush(&mut t, id, cur_name, glyph, color);
+        flush(&mut t, id, cur_name, glyph, color, hp, damage);
     }
     t
 }
@@ -140,5 +194,21 @@ mod tests {
         let t = table();
         assert!(t.count() > 500, "count={}", t.count());
         assert!(t.pick_by_glyph('o', 0).is_some() || t.pick_any(0).is_some());
+    }
+
+    #[test]
+    fn parses_dice_and_stats() {
+        assert_eq!(dice_avg("1d4"), Some(3));
+        assert_eq!(dice_avg("4d6"), Some(14));
+        assert_eq!(dice_avg("2d5"), Some(6));
+        assert_eq!(dice_avg("nope"), None);
+        let t = table();
+        // race 1 (Filthy street urchin, 1d4 hp) and 50 (Salamander, 4d6, BITE 1d7)
+        assert_eq!(t.get(1).and_then(|r| r.hp), Some(3));
+        assert_eq!(t.get(50).and_then(|r| r.hp), Some(14));
+        assert_eq!(t.get(50).and_then(|r| r.damage), Some(4));
+        // most races carry hp now
+        let with_hp = t.iter().filter(|(_, r)| r.hp.is_some()).count();
+        assert!(with_hp > 500, "with_hp={with_hp}");
     }
 }

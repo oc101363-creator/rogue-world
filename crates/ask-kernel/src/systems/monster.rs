@@ -120,8 +120,13 @@ pub fn process_monsters_system(world: &mut World) {
 }
 
 /// The ONE place a monster hits an agent.
+/// Damage comes from the monster's race (r_info); balance is the fallback.
 fn hit(world: &mut World, mon_e: Entity, agent_e: Entity, name: &str) {
-    let damage = balance::MONSTER_DAMAGE;
+    let damage = world
+        .get::<Monster>(mon_e)
+        .and_then(|m| crate::r_info::table().get(m.race_id))
+        .and_then(|r| r.damage)
+        .unwrap_or(balance::MONSTER_DAMAGE);
     if let Some(mut hp) = world.get_mut::<Health>(agent_e) {
         hp.damage(damage);
     }
