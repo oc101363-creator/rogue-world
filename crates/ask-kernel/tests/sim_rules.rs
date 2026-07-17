@@ -1051,3 +1051,57 @@ fn plant_is_zero_sum_no_wood_printing() {
     assert_eq!(amount, ask_kernel::balance::PLANTED_TREE_AMOUNT);
     assert!(amount <= ask_kernel::balance::PLANT_COST_WOOD, "plant must not print wood");
 }
+
+#[test]
+fn scoop_place_cycle_creates_nothing() {
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 43;
+    let mut kw = KernelWorld::new(&cfg);
+    let agent = kw.agent_entity().unwrap();
+    let floor = find_open_floor(&mut kw, 3);
+    set_pos(&mut kw, agent, floor);
+    kw.world
+        .resource_mut::<Grid>()
+        .set(floor.0, floor.1, id::FLOOR);
+
+    // scoop FLOOR → pack gets FLOOR block, cell becomes DIRT
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("scoop".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    let inv = kw.world.get::<Inventory>(agent).unwrap();
+    assert_eq!(inv.qty_terrain(id::FLOOR), 1, "scoop should pack the floor");
+    assert_eq!(
+        kw.world.resource::<Grid>().get(floor.0, floor.1),
+        Some(id::DIRT)
+    );
+
+    // place FLOOR back onto DIRT → cell becomes FLOOR, and NOTHING else
+    // (soft ground must not be returned as a displaced block)
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("place".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    assert_eq!(
+        kw.world.resource::<Grid>().get(floor.0, floor.1),
+        Some(id::FLOOR)
+    );
+    let inv = kw.world.get::<Inventory>(agent).unwrap();
+    assert_eq!(inv.slots.len(), 0, "cycle must be zero-sum, pack: {:?}", inv.slots);
+}

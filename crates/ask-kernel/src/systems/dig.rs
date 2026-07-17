@@ -180,12 +180,10 @@ pub fn apply_place(world: &mut World, agent: Entity, dx: i32, dy: i32, slot: Opt
         return;
     }
 
-    // Overwriting diggable/scoopable ground returns the displaced block to
-    // the pack — except plain floor, which would flood the pack.
-    let displaced = if cur != feat
-        && cur != crate::f_info::id::FLOOR
-        && (sandbox::is_diggable(cur) || sandbox::is_scoopable(cur))
-    {
+    // Conservation: only HARD ROCK comes back as a displaced block.
+    // Soft ground (floor/dirt/grass…) simply vanishes when overwritten —
+    // otherwise scoop+place prints matter out of thin air.
+    let displaced = if cur != feat && sandbox::is_diggable(cur) {
         Some(cur)
     } else {
         None

@@ -64,11 +64,9 @@ pub fn scoop_rule(feat: FeatId) -> Option<ExtractRule> {
             leave: id::FLOOR,
             bonus_iron: 0,
         }),
-        // walkable soft ground not listed above
-        _ if info.walk && !info.wall && !info.trap => Some(ExtractRule {
-            leave: id::FLOOR,
-            bonus_iron: 0,
-        }),
+        // NOTE: no walkable catch-all — every scoopable surface is named
+        // above. A generic "any soft ground" rule made matter semantics
+        // untracked and fed the place-displacement printing loop.
         _ => None,
     }
 }
