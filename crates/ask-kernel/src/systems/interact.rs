@@ -178,7 +178,7 @@ pub fn list_at(world: &mut World, agent: Entity, dx: i32, dy: i32) -> Vec<Intera
             dx,
             dy,
             verb: "plant".into(),
-            label: "plant tree".into(),
+            label: format!("plant tree ({} wood)", crate::balance::PLANT_COST_WOOD),
             target_id: None,
             slot: None,
             recipe: None,

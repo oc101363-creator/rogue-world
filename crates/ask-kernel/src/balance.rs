@@ -36,3 +36,9 @@ pub fn trap_damage(feat: u16) -> i32 {
         _ => 2,
     }
 }
+
+// --- planting ---
+/// Wood cost to plant a tree (a TREE block also works, it is worth 2 wood).
+pub const PLANT_COST_WOOD: u32 = 2;
+/// Yield of a planted tree. amount ≤ cost: planting moves wood, never prints it.
+pub const PLANTED_TREE_AMOUNT: u32 = 2;

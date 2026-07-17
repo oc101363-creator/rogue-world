@@ -1001,3 +1001,53 @@ fn set_pos(kw: &mut KernelWorld, e: bevy_ecs::prelude::Entity, pos: (i32, i32)) 
     p.x = pos.0;
     p.y = pos.1;
 }
+
+#[test]
+fn plant_is_zero_sum_no_wood_printing() {
+    use ask_kernel::components::{Matter, Resource};
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 41;
+    let mut kw = KernelWorld::new(&cfg);
+    let agent = kw.agent_entity().unwrap();
+    let floor = find_open_floor(&mut kw, 3);
+    set_pos(&mut kw, agent, floor);
+    kw.world
+        .resource_mut::<Grid>()
+        .set(floor.0, floor.1, id::DIRT);
+    kw.world
+        .get_mut::<Inventory>(agent)
+        .unwrap()
+        .add(Matter::Resource { resource: ResourceKind::Wood }, 10);
+
+    // plant: costs exactly PLANT_COST_WOOD
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("plant".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    let wood = kw.world.get::<Inventory>(agent).unwrap().wood();
+    assert_eq!(wood, 10 - ask_kernel::balance::PLANT_COST_WOOD);
+
+    // planted tree yields exactly PLANTED_TREE_AMOUNT — the full cycle is zero-sum
+    // (query scoped to the planted cell: generated trees carry cfg.tree_amount)
+    let amount = {
+        let mut q = kw.world.query::<(&Resource, &Position)>();
+        q.iter(&kw.world)
+            .find(|(r, p)| {
+                r.kind == ResourceKind::Wood && p.x == floor.0 && p.y == floor.1
+            })
+            .map(|(r, _)| r.amount)
+            .expect("planted tree resource")
+    };
+    assert_eq!(amount, ask_kernel::balance::PLANTED_TREE_AMOUNT);
+    assert!(amount <= ask_kernel::balance::PLANT_COST_WOOD, "plant must not print wood");
+}

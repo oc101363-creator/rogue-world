@@ -76,7 +76,7 @@ pub fn apply_craft(world: &mut World, agent: Entity, recipe_id: &str) {
     });
 }
 
-/// Plant: place TREE feat from wood (1) or from Terrain TREE stack; spawn harvestable Resource.
+/// Plant: place TREE feat from wood (PLANT_COST_WOOD) or 1 Terrain TREE block; spawn harvestable Resource.
 pub fn apply_plant(world: &mut World, agent: Entity, dx: i32, dy: i32) {
     let eid = stable_id(world, agent);
     if !((dx == 0 && dy == 0) || dx.abs() + dy.abs() == 1) {
@@ -105,7 +105,7 @@ pub fn apply_plant(world: &mut World, agent: Entity, dx: i32, dy: i32) {
         return;
     }
 
-    // prefer Terrain TREE stack, else spend 1 wood
+    // prefer 1 TREE block (worth 2 wood), else spend PLANT_COST_WOOD wood
     let paid = {
         let Some(mut inv) = world.get_mut::<Inventory>(agent) else {
             world
@@ -118,7 +118,7 @@ pub fn apply_plant(world: &mut World, agent: Entity, dx: i32, dy: i32) {
         };
         if inv.remove_terrain(id::TREE, 1) {
             true
-        } else if inv.remove_resource(ResourceKind::Wood, 1) {
+        } else if inv.remove_resource(ResourceKind::Wood, crate::balance::PLANT_COST_WOOD) {
             true
         } else {
             false
@@ -129,7 +129,7 @@ pub fn apply_plant(world: &mut World, agent: Entity, dx: i32, dy: i32) {
             .resource_mut::<EventBuf>()
             .push(GameEvent::ActionRejected {
                 entity: eid,
-                reason: "need_wood_or_tree_block".into(),
+                reason: "need_2_wood_or_tree_block".into(),
             });
         return;
     }
@@ -149,7 +149,7 @@ pub fn apply_plant(world: &mut World, agent: Entity, dx: i32, dy: i32) {
             Glyph('T'),
             Resource {
                 kind: ResourceKind::Wood,
-                amount: 3,
+                amount: crate::balance::PLANTED_TREE_AMOUNT,
             },
             StableId(idn),
         ));
@@ -228,6 +228,6 @@ pub fn list_crafts(world: &World, agent: Entity) -> Vec<(String, String)> {
 pub fn can_plant(world: &World, agent: Entity) -> bool {
     world
         .get::<Inventory>(agent)
-        .map(|i| i.qty_terrain(id::TREE) > 0 || i.wood() > 0)
+        .map(|i| i.qty_terrain(id::TREE) > 0 || i.wood() >= crate::balance::PLANT_COST_WOOD)
         .unwrap_or(false)
 }
