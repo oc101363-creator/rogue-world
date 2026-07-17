@@ -22,6 +22,7 @@ pub mod memory;
 pub mod org;
 pub mod persist;
 pub mod player;
+pub mod process_rules;
 pub mod r_info;
 pub mod sandbox;
 pub mod serve;
