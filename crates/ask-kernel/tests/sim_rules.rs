@@ -1606,3 +1606,70 @@ fn use_ignites_wood_and_eats_grass() {
     apply_actions_system(&mut kw.world);
     assert_eq!(kw.world.get::<Health>(agent).unwrap().hp, 11);
 }
+
+#[test]
+fn fire_spreads_and_burns_out_deterministically() {
+    use ask_kernel::world::TickCounter;
+
+    let stage = |kw: &mut KernelWorld| {
+        let (w, h) = {
+            let g = kw.world.resource::<Grid>();
+            (g.width, g.height)
+        };
+        let mut grid = kw.world.resource_mut::<Grid>();
+        for i in 0..grid.cells.len() {
+            grid.cells[i] = id::GRANITE;
+        }
+        for x in 1..(w - 1) {
+            grid.set(x, h / 2, id::GRASS);
+        }
+        grid.set(1, h / 2, id::FIRE);
+        (w, h)
+    };
+    let first_spread_tick = |seed: u64| {
+        let mut cfg = Config::default();
+        cfg.width = 33;
+        cfg.height = 22;
+        cfg.seed = seed;
+        let mut kw = KernelWorld::new(&cfg);
+        let (_w, h) = stage(&mut kw);
+        let mut t = 0u64;
+        loop {
+            t += 1;
+            let next = kw.tick() + 1;
+            *kw.world.resource_mut::<TickCounter>() = TickCounter(next);
+            ask_kernel::systems::process_world(&mut kw.world);
+            let g = kw.world.resource::<Grid>();
+            if g.get(2, h / 2) == Some(id::FIRE) || t > 400 {
+                return (t, g.get(2, h / 2) == Some(id::FIRE));
+            }
+        }
+    };
+    let (t1, spread1) = first_spread_tick(123);
+    let (t2, spread2) = first_spread_tick(123);
+    assert!(spread1, "fire never spread to adjacent grass");
+    assert!(spread2, "fire never spread to adjacent grass (run 2)");
+    assert_eq!(t1, t2, "same seed must reproduce the same process");
+    // keep running the first world: some cell eventually burns out
+    let mut cfg = Config::default();
+    cfg.width = 33;
+    cfg.height = 22;
+    cfg.seed = 123;
+    let mut kw = KernelWorld::new(&cfg);
+    let (w, h) = stage(&mut kw);
+    let mut out_seen = false;
+    for _ in 0..(8 * 80) {
+        let next = kw.tick() + 1;
+        *kw.world.resource_mut::<TickCounter>() = TickCounter(next);
+        ask_kernel::systems::process_world(&mut kw.world);
+        let g = kw.world.resource::<Grid>();
+        if (1..(w - 1)).any(|x| {
+            let f = g.get(x, h / 2);
+            f == Some(id::FLOOR) || f == Some(id::RUBBLE)
+        }) {
+            out_seen = true;
+            break;
+        }
+    }
+    assert!(out_seen, "fire never burned out");
+}

@@ -36,6 +36,10 @@ pub struct FeatInfo {
     pub project: bool,
     /// Frog FF_REMEMBER — always memorize when seen (walls/doors/stairs…).
     pub remember: bool,
+    /// F:-line `LIT` flag — emits light (fire/torch). NOTE: the G: line's
+    /// third field is Angband's display-light and appears on most feats;
+    /// we deliberately do NOT parse it for this.
+    pub lit: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -230,6 +234,7 @@ fn parse_f_info() -> FeatTable {
     let mut cur_name = String::new();
     let mut cur_glyph = '?';
     let mut cur_color = 'w';
+    let mut cur_lit = false;
     let mut flags = String::new();
 
     let flush = |by_id: &mut Vec<Option<FeatInfo>>,
@@ -237,6 +242,7 @@ fn parse_f_info() -> FeatTable {
                  name: String,
                  glyph: char,
                  color: char,
+                 _g_lit: bool,
                  flags: &str| {
         let up = flags.to_ascii_uppercase();
         let walk = up.contains("MOVE");
@@ -254,6 +260,8 @@ fn parse_f_info() -> FeatTable {
         let project = up.contains("PROJECT");
         // REMEMBER is the memorization flag; walls often have it without LOS
         let remember = up.contains("REMEMBER");
+        // LIT comes from the G: line's third field; accept an F:-line token too
+        let lit = up.split('|').any(|t| t.trim() == "LIT");
         // shallow water still MOVE in frog; deep water often not — trust F:MOVE only for walk
         let info = FeatInfo {
             id,
@@ -274,6 +282,7 @@ fn parse_f_info() -> FeatTable {
             los,
             project,
             remember,
+            lit,
         };
         let idx = id as usize;
         if by_id.len() <= idx {
@@ -295,11 +304,13 @@ fn parse_f_info() -> FeatTable {
                     std::mem::take(&mut cur_name),
                     cur_glyph,
                     cur_color,
+                    cur_lit,
                     &flags,
                 );
                 flags.clear();
                 cur_glyph = '?';
                 cur_color = 'w';
+                cur_lit = false;
             }
             // N:id:NAME
             let mut parts = rest.splitn(2, ':');
@@ -307,7 +318,9 @@ fn parse_f_info() -> FeatTable {
             cur_name = parts.next().unwrap_or("").to_string();
             cur_id = Some(id);
         } else if let Some(rest) = line.strip_prefix("G:") {
-            // G:glyph:color or G:glyph:color:LIT
+            // G:glyph:color or G:glyph:color:LIT (glyph itself may be ':',
+            // so detect the flag as a ":LIT" suffix rather than field index)
+            cur_lit = rest.to_ascii_uppercase().ends_with(":LIT");
             let mut chars = rest.chars();
             cur_glyph = chars.next().unwrap_or('?');
             // skip optional ':'
@@ -328,6 +341,7 @@ fn parse_f_info() -> FeatTable {
             std::mem::take(&mut cur_name),
             cur_glyph,
             cur_color,
+            cur_lit,
             &flags,
         );
     }
@@ -354,5 +368,11 @@ mod tests {
         assert!(!granite.walk);
         let water = t.get(id::DEEP_WATER).unwrap();
         assert_eq!(water.glyph, '~');
+        // ASK `lit` parses ONLY the F:-line LIT flag (light emitter).
+        // The G: line's third field ("drawn as lit") is ignored on purpose —
+        // granite/floor/water carry it but must NOT be emitters.
+        assert!(t.get(id::FIRE).unwrap().lit);
+        assert!(!t.get(id::GRANITE).unwrap().lit);
+        assert!(!t.get(id::DEEP_LAVA).unwrap().lit);
     }
 }

@@ -51,14 +51,18 @@ pub struct GlowMask {
     pub width: i32,
     pub height: i32,
     pub mask: Vec<bool>,
+    /// Generation-time room glow — effective mask is always `base ∪ LIT feats`.
+    pub base: Vec<bool>,
 }
 
 impl GlowMask {
     pub fn new(width: i32, height: i32) -> Self {
+        let n = (width * height) as usize;
         Self {
             width,
             height,
-            mask: vec![false; (width * height) as usize],
+            mask: vec![false; n],
+            base: vec![false; n],
         }
     }
 
@@ -68,12 +72,58 @@ impl GlowMask {
         for i in 0..n.min(slice.len()) {
             mask[i] = slice[i];
         }
+        let base = mask.clone();
         Self {
             width,
             height,
             mask,
+            base,
         }
     }
+}
+
+/// mask := base (room light) ∪ glow radius of every light-source feat.
+/// Called by the process engine; vision reads `mask` as usual.
+///
+/// NOTE: frog's G:-line `LIT` flag is NOT the emitter predicate — it marks
+/// "drawn as lit" terrain and 76/189 feats carry it (floors, granite,
+/// water, traps…); using it here would light the whole map and delete the
+/// darkness mechanic. ASK light sources are an explicit set instead:
+/// spreading fire today, torch posts tomorrow.
+fn is_light_source(feat: f_info::FeatId) -> bool {
+    feat == f_info::id::FIRE
+}
+
+pub fn recompute_glow(world: &mut World) {
+    let (w, h, lit_cells) = {
+        let g = world.resource::<Grid>();
+        let lit: Vec<(i32, i32)> = (0..g.height)
+            .flat_map(|y| (0..g.width).map(move |x| (x, y)))
+            .filter(|&(x, y)| g.get(x, y).map(is_light_source).unwrap_or(false))
+            .collect();
+        (g.width, g.height, lit)
+    };
+    let r = crate::balance::LIT_GLOW_RADIUS;
+    let mut glow = world
+        .get_resource::<GlowMask>()
+        .cloned()
+        .unwrap_or_else(|| GlowMask::new(w, h));
+    glow.mask.copy_from_slice(&glow.base);
+    for (cx, cy) in lit_cells {
+        for dy in -r..=r {
+            for dx in -r..=r {
+                if dx * dx + dy * dy > r * r {
+                    continue;
+                }
+                let (x, y) = (cx + dx, cy + dy);
+                if x < 0 || y < 0 || x >= w || y >= h {
+                    continue;
+                }
+                glow.mask[(y * w + x) as usize] = true;
+            }
+        }
+    }
+    world.insert_resource(glow);
 }
 
 impl VisionMap {

@@ -54,9 +54,10 @@ pub struct ProcessRule {
 }
 
 /// Burns: any plant or woodwork (flags, never an id list).
-/// NOTE: brake has no parsed flag in f_info.rs, so it is matched by id.
+/// NOTE: brake and grass have no parsed flag in f_info.rs, so they are
+/// matched by id (both are frog plants — see their F:PLANT flag).
 pub fn is_flammable(f: &FeatInfo) -> bool {
-    f.tree || f.id == id::BRAKE || f.door
+    f.tree || f.id == id::BRAKE || f.id == id::GRASS || f.door
 }
 
 /// Water may flow into this: open, not already water, not a door.

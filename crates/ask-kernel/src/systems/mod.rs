@@ -12,6 +12,7 @@ pub mod movement;
 pub mod terrain;
 pub mod use_item;
 pub mod verbs;
+pub mod process;
 
 use bevy_ecs::prelude::*;
 
@@ -28,6 +29,7 @@ pub use self::death::check_deaths_system as check_deaths;
 pub use self::items::pickup_items_system as pickup_items;
 pub use self::monster::monster_move_to;
 pub use self::monster::process_monsters_system as process_monsters;
+pub use self::process::process_world;
 
 pub fn apply_actions_system(world: &mut World) {
     let mut items = {

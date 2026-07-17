@@ -44,3 +44,14 @@ pub fn trap_damage(feat: u16) -> i32 {
 pub const PLANT_COST_WOOD: u32 = 2;
 /// Yield of a planted tree. amount ≤ cost: planting moves wood, never prints it.
 pub const PLANTED_TREE_AMOUNT: u32 = 2;
+
+// --- world processes ---
+pub const PROCESS_EVERY_N: u64 = 8;
+pub const FIRE_SPREAD_PCT: u8 = 15;
+pub const FIRE_BURNOUT_PCT: u8 = 6;
+pub const WATER_EVAPORATE_PCT: u8 = 20;
+pub const WATER_FLOW_DEEP_PCT: u8 = 2;
+pub const WATER_FLOW_SHALLOW_PCT: u8 = 8;
+pub const GRASS_SPREAD_PCT: u8 = 8;
+/// Glow radius of LIT feats (torch/fire).
+pub const LIT_GLOW_RADIUS: i32 = 5;

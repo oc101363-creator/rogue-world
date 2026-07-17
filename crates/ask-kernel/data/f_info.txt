@@ -1771,4 +1771,4 @@ N:99:FIRE
 E:spreading fire
 G:!:r:LIT
 W:1
-F:MOVE | LAVA
+F:MOVE | LAVA | LIT
