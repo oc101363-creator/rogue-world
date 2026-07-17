@@ -90,7 +90,7 @@ async fn ws_dark_until_subscribed_then_dev_sees_all() {
 
 #[tokio::test]
 async fn ws_action_requires_token() {
-    let (addr, serve, _h) = start().await;
+    let (addr, _serve, _h) = start().await;
 
     // register an agent over HTTP first
     let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
