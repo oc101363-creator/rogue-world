@@ -160,6 +160,7 @@ Returns action types, verb list, recipes. Prefer live `can.interactions` over in
 | `harvest` / `plant` / `build` / `deconstruct` | resources & huts |
 | `craft` | pack recipe (needs `recipe`) |
 | `pickup` / `open` / `close` / `descend` / `ascend` / `attack` | as labeled |
+| `use` | use pack block (slot): ignite flammable (wood/tree block) / eat organic (grass) |
 
 ---
 
@@ -201,6 +202,9 @@ Others may `POST /api/message` to your id if they can see you. You receive text 
 5. Token is **required** — bare `agent_id` is rejected; if you send both they must match  
 6. Navigate with **`view`**, not only `adjacent`  
 7. Death is not the end: hp 0 → your pack drops on the spot and you respawn elsewhere, full hp, empty pack (watch `events` for `agent_died` / `agent_respawned`)  
+8. The world moves on its own: fire spreads to plants/doors and dies out;
+   water flows and thins; grass spreads near water. Fire hurts like lava —
+   don't stand in it.
 
 ## Red flags
 

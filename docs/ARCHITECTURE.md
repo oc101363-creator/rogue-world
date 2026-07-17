@@ -46,6 +46,9 @@ static/         web client (identity-first render from feat_ids + /api/art)
    `scoop_place_cycle_creates_nothing`, `ore_vein_cycle_cannot_print_iron`,
    `dig_place_cannot_print_iron`, `craft_chain_never_net_positive`,
    `plant_scoop_harvest_zero_sum`.
+   World processes follow the same law: fire consumes fuel and its ash rate
+   is < 1 block per wood block; deep water produces slower (2%) than shallow
+   water thins out (8%); trees never self-replicate (plant only).
 
 ## Tick phases (sole entry: `Sim::step`)
 
@@ -56,9 +59,11 @@ static/         web client (identity-first render from feat_ids + /api/art)
 4. `pickup_items` — same-cell auto pickup
 5. `process_monsters` — nearest-agent chase/attack
 6. `check_deaths` — hp 0 → drop pack + respawn
-7. level change — `PendingLevelChange` → rebuild, preserving ALL agents
-8. vision — union FOV (internal) + per-agent memory (bbox only)
-9. `advance_tick`
+7. `process_world` — fire/water/grass evolve (every PROCESS_EVERY_N ticks,
+   rules in process_rules.rs; glow recomputed from base + F:-line LIT emitters)
+8. level change — `PendingLevelChange` → rebuild, preserving ALL agents
+9. vision — union FOV (internal) + per-agent memory (bbox only)
+10. `advance_tick`
 
 ## Key structures
 

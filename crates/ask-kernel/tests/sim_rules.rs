@@ -1673,3 +1673,142 @@ fn fire_spreads_and_burns_out_deterministically() {
     }
     assert!(out_seen, "fire never burned out");
 }
+
+// --- world process test helpers ---
+fn stage_fill(kw: &mut KernelWorld, fill: u16) -> (i32, i32) {
+    let (w, h) = {
+        let g = kw.world.resource::<Grid>();
+        (g.width, g.height)
+    };
+    let mut grid = kw.world.resource_mut::<Grid>();
+    for i in 0..grid.cells.len() {
+        grid.cells[i] = fill;
+    }
+    (w, h)
+}
+
+fn run_process_ticks(kw: &mut KernelWorld, n: u64) {
+    use ask_kernel::world::TickCounter;
+    for _ in 0..n {
+        *kw.world.resource_mut::<TickCounter>() = TickCounter(kw.tick() + 1);
+        ask_kernel::systems::process_world(&mut kw.world);
+    }
+}
+
+#[test]
+fn fire_dies_on_water_and_monster_dies_in_fire() {
+    use ask_kernel::components::{Monster, StableId};
+
+    let mut cfg = Config::default();
+    cfg.width = 33;
+    cfg.height = 22;
+    cfg.seed = 137;
+    let mut kw = KernelWorld::new(&cfg);
+    let (w, _h) = stage_fill(&mut kw, id::GRANITE);
+    {
+        let mut grid = kw.world.resource_mut::<Grid>();
+        for x in 1..(w - 1) {
+            grid.set(x, 5, id::FLOOR);
+            grid.set(x, 6, id::SHALLOW_WATER);
+        }
+        grid.set(1, 5, id::FIRE);
+    }
+    run_process_ticks(&mut kw, 8 * 40);
+    let g = kw.world.resource::<Grid>();
+    for x in 1..(w - 1) {
+        assert_ne!(g.get(x, 6), Some(id::FIRE), "fire crossed water at x={x}");
+    }
+    // monster on FIRE cell dies via the lava-flag damage branch
+    let e = kw.world.spawn((
+        Position { x: 1, y: 5 },
+        Glyph('o'),
+        Monster { race_id: 1, name: "fire rat".into(), color: 'r' },
+        Health { hp: 3, max_hp: 3 },
+        StableId(99921),
+    )).id();
+    kw.world.resource_mut::<Grid>().set(1, 5, id::FIRE);
+    ask_kernel::systems::monster_move_to(&mut kw.world, e, 1, 5);
+    assert!(kw.world.get::<Health>(e).is_none(), "monster must die in fire");
+}
+
+#[test]
+fn water_flows_and_stays_bounded() {
+    let mut cfg = Config::default();
+    cfg.width = 33;
+    cfg.height = 22;
+    cfg.seed = 139;
+    let mut kw = KernelWorld::new(&cfg);
+    let (w, h) = stage_fill(&mut kw, id::GRANITE);
+    {
+        let mut grid = kw.world.resource_mut::<Grid>();
+        for y in 1..(h - 1) {
+            for x in 1..(w - 1) {
+                grid.set(x, y, id::FLOOR);
+            }
+        }
+        grid.set(w / 2, h / 2, id::DEEP_WATER);
+    }
+    run_process_ticks(&mut kw, 8 * 60);
+    let g = kw.world.resource::<Grid>();
+    let water_cells = g
+        .cells
+        .iter()
+        .filter(|&&f| f == id::SHALLOW_WATER || f == id::DEEP_WATER)
+        .count();
+    assert!(water_cells > 1, "water never flowed");
+    assert!(water_cells < (w * h) as usize / 2, "water unbounded: {water_cells}");
+}
+
+#[test]
+fn grass_needs_water_to_spread() {
+    let mut cfg = Config::default();
+    cfg.width = 33;
+    cfg.height = 22;
+    cfg.seed = 149;
+    let mut kw = KernelWorld::new(&cfg);
+    let (w, h) = stage_fill(&mut kw, id::GRANITE);
+    {
+        let mut grid = kw.world.resource_mut::<Grid>();
+        for y in 1..(h - 1) {
+            for x in 1..(w - 1) {
+                grid.set(x, y, id::DIRT);
+            }
+        }
+        grid.set(3, 3, id::GRASS);
+    }
+    run_process_ticks(&mut kw, 8 * 30);
+    let g = kw.world.resource::<Grid>();
+    let grass_dry = g.cells.iter().filter(|&&f| f == id::GRASS).count();
+    assert_eq!(grass_dry, 1, "grass spread without water");
+    kw.world.resource_mut::<Grid>().set(4, 3, id::SHALLOW_WATER);
+    run_process_ticks(&mut kw, 8 * 60);
+    let g = kw.world.resource::<Grid>();
+    let grass_wet = g.cells.iter().filter(|&&f| f == id::GRASS).count();
+    assert!(grass_wet > 1, "grass never spread with water");
+}
+
+#[test]
+fn fire_glows_and_glow_dies_with_it() {
+    let mut cfg = Config::default();
+    cfg.width = 33;
+    cfg.height = 22;
+    cfg.seed = 151;
+    let mut kw = KernelWorld::new(&cfg);
+    let (w, _h) = stage_fill(&mut kw, id::GRANITE); // grid is >= 44x44 (gen minimum)
+    kw.world.resource_mut::<Grid>().set(5, 5, id::FIRE);
+    run_process_ticks(&mut kw, ask_kernel::balance::PROCESS_EVERY_N);
+    let glow = kw.world.resource::<ask_kernel::vision::GlowMask>();
+    assert!(glow.mask[(5 * w + 5) as usize], "FIRE must glow");
+    // burn it out: fire_burnout converts FIRE to FLOOR/RUBBLE over time
+    let mut fire_gone = false;
+    for _ in 0..(8 * 80) {
+        run_process_ticks(&mut kw, 1);
+        if kw.world.resource::<Grid>().get(5, 5) != Some(id::FIRE) {
+            fire_gone = true;
+            break;
+        }
+    }
+    assert!(fire_gone, "fire never burned out");
+    let glow = kw.world.resource::<ask_kernel::vision::GlowMask>();
+    assert!(!glow.mask[(5 * w + 5) as usize], "glow must clear after fire dies");
+}
