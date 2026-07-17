@@ -24,6 +24,27 @@ pub fn on_enter_cell(world: &mut World, entity: Entity, x: i32, y: i32) {
         let name = info
             .map(|f| f.name.clone())
             .unwrap_or_else(|| "trap".into());
+        // teleport trap: relocate instead of damage
+        if feat == id::TRAP_TELEPORT {
+            let eid2 = stable_id(world, entity);
+            let dest =
+                crate::world::random_free_cell(world, eid2.wrapping_add(0x9E37)).unwrap_or((x, y));
+            if let Some(mut p) = world.get_mut::<Position>(entity) {
+                p.x = dest.0;
+                p.y = dest.1;
+            }
+            world.resource_mut::<Grid>().set(x, y, id::FLOOR);
+            world
+                .resource_mut::<EventBuf>()
+                .push(GameEvent::TrapTriggered {
+                    entity: eid,
+                    feat,
+                    name,
+                    damage: 0,
+                    at: (x, y),
+                });
+            return;
+        }
         let damage = balance::trap_damage(feat);
         if let Some(mut hp) = world.get_mut::<Health>(entity) {
             hp.damage(damage);
@@ -171,6 +192,13 @@ pub fn apply_close_door(world: &mut World, entity: Entity, dx: i32, dy: i32) {
         });
 }
 
+/// Test/system hook: run on_enter_cell at the entity's current cell.
+pub fn on_enter_cell_for_test(world: &mut World, entity: Entity) {
+    if let Some(p) = world.get::<Position>(entity).copied() {
+        on_enter_cell(world, entity, p.x, p.y);
+    }
+}
+
 /// Use stairs on current cell — regenerates a new level (frog depth change spirit).
 pub fn apply_use_stairs(world: &mut World, entity: Entity, down: bool) {
     let Some(pos) = world.get::<Position>(entity).copied() else {
@@ -198,6 +226,16 @@ pub fn apply_use_stairs(world: &mut World, entity: Entity, down: bool) {
                 } else {
                     "not_up_stairs".into()
                 },
+            });
+        return;
+    }
+
+    if !down && world.resource::<Depth>().0 == 0 {
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::ActionRejected {
+                entity: eid,
+                reason: "no_up_from_surface".into(),
             });
         return;
     }

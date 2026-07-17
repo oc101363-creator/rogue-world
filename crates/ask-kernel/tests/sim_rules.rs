@@ -1213,3 +1213,56 @@ fn salamander_swims_and_ignores_lava() {
     let hp = kw.world.get::<Health>(e).map(|h| h.hp);
     assert_eq!(hp, Some(5), "RES_FIRE salamander must ignore lava");
 }
+
+#[test]
+fn ascend_at_surface_rejected_and_teleport_trap_teleports() {
+    use ask_kernel::components::StableId;
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 61;
+    let mut kw = KernelWorld::new(&cfg);
+    let agent = kw.agent_entity().unwrap();
+    let floor = find_open_floor(&mut kw, 4);
+
+    // ascend at depth 0 must be rejected, not a free level re-roll
+    kw.world
+        .resource_mut::<Grid>()
+        .set(floor.0, floor.1, id::UP_STAIR);
+    set_pos(&mut kw, agent, floor);
+    let sid = kw.world.get::<StableId>(agent).unwrap().0;
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("ascend".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    assert_eq!(kw.world.resource::<ask_kernel::world::Depth>().0, 0);
+    let evs = kw.world.resource_mut::<EventBuf>().drain();
+    assert!(
+        evs.iter().any(|e| matches!(e, GameEvent::ActionRejected { reason, .. } if reason == "no_up_from_surface")),
+        "surface ascend must be rejected"
+    );
+
+    // teleport trap moves the agent (and deals no damage)
+    kw.world
+        .resource_mut::<Grid>()
+        .set(floor.0, floor.1, id::TRAP_TELEPORT);
+    set_pos(&mut kw, agent, floor);
+    let hp_before = kw.world.get::<Health>(agent).unwrap().hp;
+    ask_kernel::systems::terrain::on_enter_cell_for_test(&mut kw.world, agent);
+    let p = kw.world.get::<Position>(agent).unwrap();
+    assert_ne!((p.x, p.y), floor, "teleport trap must move the agent");
+    assert_eq!(
+        kw.world.get::<Health>(agent).unwrap().hp,
+        hp_before,
+        "teleport deals no damage"
+    );
+    let _ = sid;
+}
