@@ -18,11 +18,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use axum::extract::connect_info::ConnectInfo;
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::Router;
-use bevy_ecs::prelude::{Entity, World};
+use bevy_ecs::prelude::{Entity, With, World};
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
@@ -88,167 +87,203 @@ async fn recent_snapshot(st: &AppState) -> Vec<crate::events::GameEvent> {
     st.recent_events.lock().await.iter().cloned().collect()
 }
 
+/// A built-but-not-yet-bound server: state + router + the running sim task.
+/// `run_server` binds this to a port; tests drive it directly.
+pub struct Serve {
+    state: AppState,
+    reg: AgentRegistry,
+}
+
+impl Serve {
+    pub fn build(kernel: KernelWorld, tick_ms: u64, save_path: Option<String>) -> Self {
+        let bus = PlayerActionBus::new();
+        // auth secret is per-process random (ASK_SECRET env pins it); the world
+        // seed stays purely a generation parameter
+        let reg = AgentRegistry::new();
+        let sim = Arc::new(Mutex::new(Sim::with_policy(
+            kernel,
+            Box::new(BusPolicy::new(bus.clone(), true)),
+        )));
+        let recent_events = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+
+        // Sim driver: a plain tokio task (no thread + blocking_lock hybrids).
+        {
+            let sim = sim.clone();
+            let recent = recent_events.clone();
+            let reg = reg.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_millis(tick_ms));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    interval.tick().await;
+
+                    // registrations → spawn into world, resolve one-shots
+                    for pending in reg.drain_spawns() {
+                        let mut sim = sim.lock().await;
+                        let res = match sim
+                            .kernel
+                            .spawn_agent(pending.name.clone(), pending.purpose.clone())
+                        {
+                            Some((id, x, y)) => {
+                                let token = reg.bind_spawned(
+                                    pending.name.clone(),
+                                    pending.purpose.clone(),
+                                    id,
+                                    x,
+                                    y,
+                                );
+                                RegisterResult {
+                                    ok: true,
+                                    token,
+                                    agent_id: id,
+                                    name: pending.name,
+                                    purpose: pending.purpose,
+                                    x,
+                                    y,
+                                    reason: None,
+                                }
+                            }
+                            None => RegisterResult {
+                                ok: false,
+                                token: String::new(),
+                                agent_id: 0,
+                                name: pending.name,
+                                purpose: pending.purpose,
+                                x: 0,
+                                y: 0,
+                                reason: Some("no_spawn_cell".into()),
+                            },
+                        };
+                        let _ = pending.result.send(res);
+                        drop(sim);
+                    }
+
+                    {
+                        let mut sim = sim.lock().await;
+                        sim.step();
+
+                        // Sync registry poses from world
+                        {
+                            let mut q =
+                                sim.kernel.world.query::<(&StableId, &Position, &Agent)>();
+                            let poses: Vec<_> = q
+                                .iter(&mut sim.kernel.world)
+                                .map(|(id, p, _)| (id.0, p.x, p.y))
+                                .collect();
+                            for (id, x, y) in poses {
+                                reg.update_pose(id, x, y, true);
+                            }
+                        }
+
+                        let ev = sim.kernel.world.resource_mut::<EventBuf>().drain();
+                        {
+                            let mut ring = recent.lock().await;
+                            for e in ev {
+                                if ring.len() == EVENT_CAP {
+                                    ring.pop_front();
+                                }
+                                ring.push_back(e);
+                            }
+                        }
+
+                        // periodic autosave (every 100 ticks) when --save is given
+                        if let Some(path) = &save_path {
+                            if sim.kernel.tick() % 100 == 0 {
+                                if let Err(e) =
+                                    crate::persist::save_to_path(&mut sim.kernel.world, path)
+                                {
+                                    eprintln!("[ask] autosave failed: {e:#}");
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        let static_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("static");
+        let index_html = {
+            let raw = std::fs::read_to_string(static_dir.join("index.html"))
+                .expect("static/index.html");
+            let ver = format!(
+                "{}-a{}",
+                env!("CARGO_PKG_VERSION"),
+                crate::art::catalog().catalog_version
+            );
+            raw.replace("__ASK_VER__", &ver)
+        };
+
+        let state = AppState {
+            sim,
+            rate: RateLimiter::default(),
+            index_html: Arc::new(index_html),
+            recent_events,
+            bus,
+            reg: reg.clone(),
+            tick_ms,
+        };
+        Self { state, reg }
+    }
+
+    pub fn dev_token(&self) -> String {
+        self.reg.dev_token()
+    }
+
+    /// Agent count in the world (test helper).
+    pub fn agent_count(&self) -> usize {
+        // best-effort; tests poll this
+        match self.state.sim.try_lock() {
+            Ok(mut sim) => {
+                let mut q = sim.kernel.world.query_filtered::<Entity, With<Agent>>();
+                q.iter(&sim.kernel.world).count()
+            }
+            Err(_) => 0,
+        }
+    }
+
+    /// HTTP router (API surface is layered; see README).
+    pub fn router(&self) -> Router {
+        Router::new()
+            // --- agent core ---
+            .route("/api/register", post(api::register))
+            .route("/api/view", get(api::view))
+            .route("/api/act", post(api::act))
+            .route("/api/catalog", get(api::catalog))
+            .route("/api/message", post(api::message_send))
+            // --- spectator / web ---
+            .route("/api/status", get(api::status))
+            .route("/api/snapshot", get(api::snapshot))
+            .route("/api/agents", get(api::agents))
+            .route("/api/track", get(api::track))
+            .route("/api/entity", get(api::entity))
+            .route("/api/cell", get(api::cell))
+            .route("/api/art", get(api::art))
+            .route("/api/control", post(api::control))
+            .route("/ws", get(ws::handler))
+            .route("/", get(index_page))
+            .nest_service("/static", ServeDir::new(static_dir()))
+            .layer(
+                CorsLayer::new()
+                    .allow_origin(Any)
+                    .allow_methods(Any)
+                    .allow_headers(Any),
+            )
+            .with_state(self.state.clone())
+    }
+}
+
+fn static_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("static")
+}
+
 pub async fn run_server(
     port: u16,
     tick_ms: u64,
     kernel: KernelWorld,
     save_path: Option<String>,
 ) -> Result<()> {
-    let bus = PlayerActionBus::new();
-    // auth secret is per-process random (ASK_SECRET env pins it); the world
-    // seed stays purely a generation parameter
-    let reg = AgentRegistry::new();
-    let sim = Arc::new(Mutex::new(Sim::with_policy(
-        kernel,
-        Box::new(BusPolicy::new(bus.clone(), true)),
-    )));
-    let recent_events = Arc::new(Mutex::new(std::collections::VecDeque::new()));
-
-    // Sim driver: a plain tokio task (no thread + blocking_lock hybrids).
-    {
-        let sim = sim.clone();
-        let recent = recent_events.clone();
-        let reg = reg.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_millis(tick_ms));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                interval.tick().await;
-
-                // registrations → spawn into world, resolve one-shots
-                for pending in reg.drain_spawns() {
-                    let mut sim = sim.lock().await;
-                    let res = match sim
-                        .kernel
-                        .spawn_agent(pending.name.clone(), pending.purpose.clone())
-                    {
-                        Some((id, x, y)) => {
-                            let token =
-                                reg.bind_spawned(pending.name.clone(), pending.purpose.clone(), id, x, y);
-                            RegisterResult {
-                                ok: true,
-                                token,
-                                agent_id: id,
-                                name: pending.name,
-                                purpose: pending.purpose,
-                                x,
-                                y,
-                                reason: None,
-                            }
-                        }
-                        None => RegisterResult {
-                            ok: false,
-                            token: String::new(),
-                            agent_id: 0,
-                            name: pending.name,
-                            purpose: pending.purpose,
-                            x: 0,
-                            y: 0,
-                            reason: Some("no_spawn_cell".into()),
-                        },
-                    };
-                    let _ = pending.result.send(res);
-                    drop(sim);
-                }
-
-                {
-                    let mut sim = sim.lock().await;
-                    sim.step();
-
-                    // Sync registry poses from world
-                    {
-                        let mut q = sim.kernel.world.query::<(&StableId, &Position, &Agent)>();
-                        let poses: Vec<_> = q
-                            .iter(&mut sim.kernel.world)
-                            .map(|(id, p, _)| (id.0, p.x, p.y))
-                            .collect();
-                        for (id, x, y) in poses {
-                            reg.update_pose(id, x, y, true);
-                        }
-                    }
-
-                    let ev = sim.kernel.world.resource_mut::<EventBuf>().drain();
-                    {
-                        let mut ring = recent.lock().await;
-                        for e in ev {
-                            if ring.len() == EVENT_CAP {
-                                ring.pop_front();
-                            }
-                            ring.push_back(e);
-                        }
-                    }
-
-                    // periodic autosave (every 100 ticks) when --save is given
-                    if let Some(path) = &save_path {
-                        if sim.kernel.tick() % 100 == 0 {
-                            if let Err(e) =
-                                crate::persist::save_to_path(&mut sim.kernel.world, path)
-                            {
-                                eprintln!("[ask] autosave failed: {e:#}");
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    eprintln!("[ask] dev token: {}", reg.dev_token());
-
-    let static_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("static");
-    let index_html = {
-        let raw = std::fs::read_to_string(static_dir.join("index.html"))
-            .expect("static/index.html");
-        let ver = format!(
-            "{}-a{}",
-            env!("CARGO_PKG_VERSION"),
-            crate::art::catalog().catalog_version
-        );
-        raw.replace("__ASK_VER__", &ver)
-    };
-
-    let state = AppState {
-        sim,
-        rate: RateLimiter::default(),
-        index_html: Arc::new(index_html),
-        recent_events,
-        bus,
-        reg,
-        tick_ms,
-    };
-
-    // API surface (layered):
-    //   Agent loop:   POST /api/register · GET /api/view · POST /api/act · GET /api/catalog
-    //   Social:       POST /api/message  (inbox appears in view)
-    //   Spectator:    GET /api/snapshot · /api/track · /api/agents · /api/entity · /api/cell · WS /ws
-    //   Presentation: GET /api/art
-    //   Ops:          GET /api/status · POST /api/control
-    let app = Router::new()
-        // --- agent core ---
-        .route("/api/register", post(api::register))
-        .route("/api/view", get(api::view))
-        .route("/api/act", post(api::act))
-        .route("/api/catalog", get(api::catalog))
-        .route("/api/message", post(api::message_send))
-        // --- spectator / web ---
-        .route("/api/status", get(api::status))
-        .route("/api/snapshot", get(api::snapshot))
-        .route("/api/agents", get(api::agents))
-        .route("/api/track", get(api::track))
-        .route("/api/entity", get(api::entity))
-        .route("/api/cell", get(api::cell))
-        .route("/api/art", get(api::art))
-        .route("/api/control", post(api::control))
-        .route("/ws", get(ws::handler))
-        .route("/", get(index_page))
-        .nest_service("/static", ServeDir::new(static_dir))
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
-        .with_state(state);
+    let serve = Serve::build(kernel, tick_ms, save_path);
+    eprintln!("[ask] dev token: {}", serve.dev_token());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     eprintln!("[ask] http://{addr}/");
@@ -259,7 +294,13 @@ pub async fn run_server(
     eprintln!("[ask] tick {tick_ms}ms");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+    axum::serve(
+        listener,
+        serve
+            .router()
+            .into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 

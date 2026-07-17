@@ -9,6 +9,10 @@ description = "Agent Simulation Kernel — digital world kernel for agents"
 name = "ask-kernel"
 path = "src/main.rs"
 
+[dev-dependencies]
+futures-util = "0.3"
+tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect"] }
+
 [dependencies]
 bevy_ecs = { workspace = true }
 serde = { workspace = true }
