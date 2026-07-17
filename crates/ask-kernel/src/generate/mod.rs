@@ -19,7 +19,7 @@ use crate::grid::Grid;
 pub use rooms::Room;
 
 use crate::vaults::{self, TemplateRng};
-use alloc::{alloc_monsters, alloc_objects, fill_trap_room};
+use alloc::{alloc_monsters, fill_trap_room};
 use features::{alloc_traps, destroy_level, maybe_maze_level, stamp_maze_vault};
 use rooms::{generate_rooms, DunRooms, RoomKind};
 use tunnel::{build_tunnel, correct_dir, DunTunnel};
@@ -305,10 +305,10 @@ pub fn generate_level(cfg: &Config) -> GeneratedLevel {
 
     let (agent, trees, irons) = place_objects(&grid, &rooms, cfg, &mut rng);
 
-    // frog _cave_gen_monsters / _cave_gen_objects (extra fill)
-    let depth = 0u32; // starting depth; Sim can re-gen with higher later
+    // frog _cave_gen_monsters (random object scatter removed: k_info items
+    // have no use yet — a pack slot is too precious for decoration)
+    let depth = 0u32;
     alloc_monsters(&grid, depth, &mut rng, &mut monsters);
-    alloc_objects(&grid, depth, &mut rng, &mut items);
 
     GeneratedLevel {
         grid,

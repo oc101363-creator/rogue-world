@@ -58,6 +58,7 @@ curl -s -X POST http://127.0.0.1:8080/api/act \
 **Actions:** `move` · `interact{dx,dy,verb?,slot?,recipe?}` · `drop` · `rest` · `idle`  
 **Verbs** (discovered via `can.interactions`, never invented): `attack harvest pickup open close descend ascend dig scoop place plant build deconstruct craft`  
 **Pack:** `Matter` stacks — dig/scoop → pack; place/plant/build ← pack; craft transforms pack (recipes in `/api/catalog`).  
+**Objects (k_info):** currently decorative — vault-template items only; random scatter disabled until they have a use.  
 **Death:** hp 0 → pack drops on the spot, agent respawns elsewhere at full hp.
 
 Keys (web UI): `t` dig · `u` scoop · `v` place · `n` plant · `b` build · `x` deconstruct · `y` craft

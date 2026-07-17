@@ -53,6 +53,8 @@ pub fn alloc_monsters(grid: &Grid, depth: u32, rng: &mut Rng, out: &mut Vec<Spaw
 }
 
 /// Frog alloc_object spirit: room + corridor items/gold/food.
+/// Disabled at the call site: k_info items have no use yet — re-enable when they do.
+#[allow(dead_code)]
 pub fn alloc_objects(grid: &Grid, depth: u32, rng: &mut Rng, out: &mut Vec<SpawnObj>) {
     let table = k_info::table();
     if table.count() == 0 {

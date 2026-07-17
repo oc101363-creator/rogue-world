@@ -1297,3 +1297,16 @@ fn rest_near_hut_heals_double() {
     apply_actions_system(&mut kw.world);
     assert_eq!(kw.world.get::<Health>(agent).unwrap().hp, 13, "hut shelter should double rest");
 }
+
+#[test]
+fn generation_scatters_no_purposeless_items() {
+    // k_info objects currently do nothing in the pack; random scatter is
+    // noise. Vault-template items (themed rooms) may still appear.
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 81;
+    let level = generate_level(&cfg);
+    let scattered = level.items.len();
+    assert_eq!(scattered, 0, "random item scatter must stop (items: {scattered})");
+}
