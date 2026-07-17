@@ -2,11 +2,15 @@
 //! into gameplay internals; they resolve identity, call a projection
 //! (agent_view / viewer / inspect), and serialize.
 
+use axum::extract::connect_info::ConnectInfo;
 use axum::extract::{Query, State};
 use axum::response::IntoResponse;
 use axum::Json;
 use bevy_ecs::prelude::{Entity, With};
 use serde::{Deserialize, Serialize};
+
+use std::net::SocketAddr;
+use std::time::Duration;
 
 use super::{build_snapshot_for_tokens, player_visible_map, recent_snapshot, AppState};
 use crate::actions::Action;
@@ -112,8 +116,19 @@ pub(crate) fn validate_action(a: &Action) -> Result<(), &'static str> {
 
 pub(crate) async fn register(
     State(st): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(req): Json<RegisterRequest>,
 ) -> impl IntoResponse {
+    // Spawn-per-registration is the main abuse vector: throttle by IP.
+    if !st
+        .rate
+        .check(&format!("register:{}", addr.ip()), 10, Duration::from_secs(60))
+    {
+        return Json(serde_json::json!({
+            "ok": false,
+            "reason": "rate_limited",
+        }));
+    }
     let name = req.name.trim().to_string();
     if name.is_empty() || name.len() > 32 {
         return Json(serde_json::json!({
@@ -196,6 +211,12 @@ pub(crate) async fn act(
     let Some(agent_id) = st.reg.resolve_token(tok) else {
         return reject("invalid_token", None);
     };
+    if !st
+        .rate
+        .check(&format!("act:{tok}"), 40, Duration::from_secs(10))
+    {
+        return reject("rate_limited", Some(agent_id));
+    }
     if let Some(declared) = req.agent_id {
         if declared != agent_id {
             return reject("agent_id_token_mismatch", Some(agent_id));
@@ -276,6 +297,17 @@ pub(crate) async fn message_send(
         .split(',')
         .map(str::trim)
         .any(|t| st.reg.is_dev_token(t));
+    if !st
+        .rate
+        .check(&format!("msg:{}", req.token), 20, Duration::from_secs(60))
+    {
+        return Json(MessageSendResponse {
+            ok: false,
+            sent: 0,
+            rejected: 0,
+            reason: Some("rate_limited".into()),
+        });
+    }
     // Sender identity comes from the token (agent name), never the wire IP —
     // recipients need to know *who* in the world wrote to them.
     let sender_name = if is_dev {

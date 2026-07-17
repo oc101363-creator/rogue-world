@@ -96,6 +96,12 @@ async fn handle_action(st: &AppState, v: &serde_json::Value) {
     let Some(agent_id) = st.reg.resolve_token(token) else {
         return;
     };
+    if !st
+        .rate
+        .check(&format!("act:{token}"), 40, std::time::Duration::from_secs(10))
+    {
+        return;
+    }
     if let Some(declared) = v.get("agent_id").and_then(|x| x.as_u64()) {
         if declared != agent_id {
             return;

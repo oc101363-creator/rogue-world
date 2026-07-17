@@ -69,13 +69,17 @@ struct RegInner {
 }
 
 impl AgentRegistry {
-    pub fn new(world_seed: u64) -> Self {
+    /// New registry with a per-process random secret (env `ASK_SECRET`
+    /// overrides, so operators can keep tokens valid across restarts).
+    /// Tokens are NO LONGER derivable from the world seed.
+    pub fn new() -> Self {
+        Self::with_secret(random_secret())
+    }
+
+    /// Explicit secret (tests, pinned deployments).
+    pub fn with_secret(secret: u64) -> Self {
         let mut inner = RegInner::default();
-        // non-zero secret from seed + fixed salt
-        inner.secret = world_seed
-            .wrapping_mul(0xD1B54A32D192ED03)
-            .wrapping_add(0xA0761D6478BD642F)
-            | 1;
+        inner.secret = secret | 1;
         inner.dev_token = mint_dev_token(inner.secret);
         Self {
             inner: Arc::new(Mutex::new(inner)),
@@ -204,6 +208,39 @@ impl AgentRegistry {
     }
 }
 
+/// Resolve the signing secret: ASK_SECRET env (u64 or hashed string),
+/// else OS randomness, else per-process RandomState + time.
+fn random_secret() -> u64 {
+    if let Ok(s) = std::env::var("ASK_SECRET") {
+        if let Ok(v) = s.parse::<u64>() {
+            return v;
+        }
+        // deterministic FNV-1a so the same string ⇒ same secret across boots
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for b in s.as_bytes() {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x0000_0100_0000_01B3);
+        }
+        return h;
+    }
+    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+        use std::io::Read;
+        let mut buf = [0u8; 8];
+        if f.read_exact(&mut buf).is_ok() {
+            return u64::from_le_bytes(buf);
+        }
+    }
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_u128(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0),
+    );
+    h.finish()
+}
+
 /// Opaque token: `ask1_` + 32 hex chars (128-bit-ish fingerprint).
 fn mint_token(secret: u64, agent_id: u64, nonce: u64) -> String {
     let mut a = secret
@@ -246,7 +283,7 @@ mod tests {
 
     #[test]
     fn tokens_unique_and_resolvable() {
-        let reg = AgentRegistry::new(42);
+        let reg = AgentRegistry::with_secret(42);
         let t1 = reg.bind_spawned("A".into(), "p".into(), 1, 0, 0);
         let t2 = reg.bind_spawned("B".into(), "q".into(), 2, 1, 1);
         assert_ne!(t1, t2);

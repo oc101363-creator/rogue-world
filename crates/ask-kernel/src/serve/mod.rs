@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use axum::extract::connect_info::ConnectInfo;
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::Router;
@@ -39,6 +40,7 @@ use crate::world::KernelWorld;
 #[derive(Clone)]
 pub(crate) struct AppState {
     sim: Arc<Mutex<Sim>>,
+    rate: RateLimiter,
     /// Pre-rendered index page (cache-bust query already injected).
     index_html: Arc<String>,
     /// Recent world events, capped ring (EVENT_CAP). Written by the sim
@@ -57,6 +59,30 @@ async fn index_page(State(st): State<AppState>) -> impl axum::response::IntoResp
 
 const EVENT_CAP: usize = 40;
 
+/// Fixed-window rate limiter (in-memory; good enough for one process).
+/// Keys are endpoint-scoped strings ("register:{ip}", "act:{token}", …).
+#[derive(Clone, Default)]
+pub(crate) struct RateLimiter {
+    buckets: Arc<std::sync::Mutex<std::collections::HashMap<String, (u32, std::time::Instant)>>>,
+}
+
+impl RateLimiter {
+    /// true = allowed; false = over limit.
+    pub(crate) fn check(&self, key: &str, max: u32, window: std::time::Duration) -> bool {
+        let now = std::time::Instant::now();
+        let mut g = self.buckets.lock().expect("rate limiter");
+        let e = g.entry(key.to_string()).or_insert((0, now));
+        if now.duration_since(e.1) >= window {
+            *e = (0, now);
+        }
+        if e.0 >= max {
+            return false;
+        }
+        e.0 += 1;
+        true
+    }
+}
+
 /// Copy the ring out for a request (40 items, trivial).
 async fn recent_snapshot(st: &AppState) -> Vec<crate::events::GameEvent> {
     st.recent_events.lock().await.iter().cloned().collect()
@@ -68,13 +94,10 @@ pub async fn run_server(
     kernel: KernelWorld,
     save_path: Option<String>,
 ) -> Result<()> {
-    let seed = kernel
-        .world
-        .get_resource::<crate::world::WorldSeed>()
-        .map(|s| s.0)
-        .unwrap_or(1);
     let bus = PlayerActionBus::new();
-    let reg = AgentRegistry::new(seed);
+    // auth secret is per-process random (ASK_SECRET env pins it); the world
+    // seed stays purely a generation parameter
+    let reg = AgentRegistry::new();
     let sim = Arc::new(Mutex::new(Sim::with_policy(
         kernel,
         Box::new(BusPolicy::new(bus.clone(), true)),
@@ -186,6 +209,7 @@ pub async fn run_server(
 
     let state = AppState {
         sim,
+        rate: RateLimiter::default(),
         index_html: Arc::new(index_html),
         recent_events,
         bus,
@@ -235,7 +259,7 @@ pub async fn run_server(
     eprintln!("[ask] tick {tick_ms}ms");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app.into_make_service()).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
     Ok(())
 }
 
@@ -323,4 +347,35 @@ pub(crate) fn build_snapshot_for_tokens(
         .and_then(|t| reg.resolve_token(t))
         .or(ids.first().copied());
     build_viewer_snapshot_with(world, recent_events, &vis, Some(&ids), focus_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rate_limiter_throttles_and_recovers() {
+        let rl = RateLimiter::default();
+        for _ in 0..3 {
+            assert!(rl.check("k", 3, Duration::from_secs(60)));
+        }
+        assert!(!rl.check("k", 3, Duration::from_secs(60)), "4th call over limit");
+        // different key unaffected
+        assert!(rl.check("other", 3, Duration::from_secs(60)));
+        // expired window resets
+        assert!(rl.check("k", 3, Duration::from_millis(0)));
+    }
+
+    #[test]
+    fn secret_is_not_seed_derived() {
+        // Two registries built with default secrets must not collide
+        // (seed-derived secrets used to make every token reproducible).
+        let a = crate::auth::AgentRegistry::new();
+        let b = crate::auth::AgentRegistry::new();
+        assert_ne!(a.dev_token(), b.dev_token());
+        // pinned secret is stable
+        let c1 = crate::auth::AgentRegistry::with_secret(42);
+        let c2 = crate::auth::AgentRegistry::with_secret(42);
+        assert_eq!(c1.dev_token(), c2.dev_token());
+    }
 }
