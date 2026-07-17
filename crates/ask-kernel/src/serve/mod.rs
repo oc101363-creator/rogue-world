@@ -42,9 +42,10 @@ pub(crate) struct AppState {
     rate: RateLimiter,
     /// Pre-rendered index page (cache-bust query already injected).
     index_html: Arc<String>,
-    /// Recent world events, capped ring (EVENT_CAP). Written by the sim
-    /// task directly — no per-tick clone of a whole Vec.
-    recent_events: Arc<Mutex<std::collections::VecDeque<crate::events::GameEvent>>>,
+    /// Recent world events, age-capped ring (last few TICKS, not last N
+    /// events — monster noise used to drown an agent's own feedback within
+    /// one tick). Written by the sim task directly.
+    recent_events: Arc<Mutex<std::collections::VecDeque<(u64, crate::events::GameEvent)>>>,
     bus: PlayerActionBus,
     reg: AgentRegistry,
     tick_ms: u64,
@@ -56,7 +57,9 @@ async fn index_page(State(st): State<AppState>) -> impl axum::response::IntoResp
     axum::response::Html(st.index_html.as_str().to_owned())
 }
 
-const EVENT_CAP: usize = 40;
+/// Events stay visible for this many ticks (recipient filters pick their
+/// own signal out of the full stream).
+const EVENT_TICKS_KEPT: u64 = 20;
 
 /// Fixed-window rate limiter (in-memory; good enough for one process).
 /// Keys are endpoint-scoped strings ("register:{ip}", "act:{token}", …).
@@ -82,9 +85,14 @@ impl RateLimiter {
     }
 }
 
-/// Copy the ring out for a request (40 items, trivial).
+/// Copy the ring out for a request (a few ticks of events, still small).
 async fn recent_snapshot(st: &AppState) -> Vec<crate::events::GameEvent> {
-    st.recent_events.lock().await.iter().cloned().collect()
+    st.recent_events
+        .lock()
+        .await
+        .iter()
+        .map(|(_, e)| e.clone())
+        .collect()
 }
 
 /// A built-but-not-yet-bound server: state + router + the running sim task.
@@ -177,12 +185,18 @@ impl Serve {
 
                         let ev = sim.kernel.world.resource_mut::<EventBuf>().drain();
                         {
+                            let tick = sim.kernel.tick();
                             let mut ring = recent.lock().await;
                             for e in ev {
-                                if ring.len() == EVENT_CAP {
+                                ring.push_back((tick, e));
+                            }
+                            // age out anything older than EVENT_TICKS_KEPT ticks
+                            while let Some((t, _)) = ring.front() {
+                                if tick.saturating_sub(*t) > EVENT_TICKS_KEPT {
                                     ring.pop_front();
+                                } else {
+                                    break;
                                 }
-                                ring.push_back(e);
                             }
                         }
 

@@ -36,10 +36,10 @@ pub fn scoop_rule(feat: FeatId) -> Option<ExtractRule> {
             leave: id::DIRT,
             bonus_iron: 0,
         }),
-        id::DIRT => Some(ExtractRule {
-            leave: id::FLOOR,
-            bonus_iron: 0,
-        }),
+        // NOTE: DIRT itself is NOT scoopable — FLOOR↔DIRT scoop toggling
+        // printed a free block of each per cycle. Dirt blocks come from
+        // grass/rubble crafts or digging, not from re-scooping dirt.
+
         id::GRASS | id::BRAKE => Some(ExtractRule {
             leave: id::DIRT,
             bonus_iron: 0,
@@ -224,7 +224,7 @@ pub fn recipes() -> &'static [Recipe] {
         Recipe {
             id: "sapling",
             name: "tree block",
-            needs: &[RecipeNeed::Wood(1)],
+            needs: &[RecipeNeed::Wood(2)],
             output: RecipeOut::Terrain(id::TREE),
         },
         Recipe {

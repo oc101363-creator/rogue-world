@@ -66,8 +66,8 @@ pub fn build_viewer_snapshot(world: &mut World, recent_events: &[GameEvent]) -> 
 /// * `allowed_agents` — if `Some(ids)`, only agent entities with those `StableId`s
 ///   are included in the snapshot.  This is the server-side gate that keeps
 ///   un-tracked agents out of a player's view.
-/// * `focus_agent_id` — which agent's interactions are returned.  If `None`,
-///   the first allowed agent is used.
+/// * `focus_agent_id` — which agent's interactions are returned. Must be in
+///   the allowed set; `None` (or a non-member) yields no interactions.
 pub fn build_viewer_snapshot_with(
     world: &mut World,
     recent_events: &[GameEvent],

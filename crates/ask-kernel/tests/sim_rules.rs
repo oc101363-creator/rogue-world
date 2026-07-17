@@ -1474,3 +1474,76 @@ fn plant_scoop_harvest_zero_sum() {
     let wood = kw.world.get::<Inventory>(agent).unwrap().wood();
     assert!(wood <= 4, "plant→scoop→harvest printed wood: {wood}");
 }
+
+#[test]
+fn plant_with_block_is_zero_sum() {
+    use ask_kernel::components::{Matter, Resource};
+
+    let mut cfg = Config::default();
+    cfg.width = 88;
+    cfg.height = 66;
+    cfg.seed = 97;
+    let mut kw = KernelWorld::new(&cfg);
+    let agent = kw.agent_entity().unwrap();
+    let floor = find_open_floor(&mut kw, 3);
+    set_pos(&mut kw, agent, floor);
+    kw.world
+        .resource_mut::<Grid>()
+        .set(floor.0, floor.1, id::DIRT);
+    kw.world
+        .get_mut::<Inventory>(agent)
+        .unwrap()
+        .add(Matter::Resource { resource: ResourceKind::Wood }, 2);
+
+    // craft sapling (2 wood → 1 TREE block), plant WITH THE BLOCK,
+    // harvest both wood back — full cycle must be zero-sum
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("craft".into()),
+            slot: None,
+            recipe: Some("sapling".into()),
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    assert_eq!(kw.world.get::<Inventory>(agent).unwrap().qty_terrain(id::TREE), 1);
+
+    kw.world.resource_mut::<ActionQueue>().push(
+        agent,
+        Action::Interact {
+            dx: 0,
+            dy: 0,
+            verb: Some("plant".into()),
+            slot: None,
+            recipe: None,
+        },
+    );
+    apply_actions_system(&mut kw.world);
+    let amount = {
+        let mut q = kw.world.query::<(&Position, &Resource)>();
+        q.iter(&kw.world)
+            .find(|(p, _)| p.x == floor.0 && p.y == floor.1)
+            .map(|(_, r)| r.amount)
+            .expect("planted resource")
+    };
+    assert_eq!(amount, ask_kernel::balance::PLANTED_TREE_AMOUNT);
+
+    for _ in 0..amount {
+        kw.world.resource_mut::<ActionQueue>().push(
+            agent,
+            Action::Interact {
+                dx: 0,
+                dy: 0,
+                verb: Some("harvest".into()),
+                slot: None,
+                recipe: None,
+            },
+        );
+        apply_actions_system(&mut kw.world);
+    }
+    let wood = kw.world.get::<Inventory>(agent).unwrap().wood();
+    assert!(wood <= 2, "sapling→plant→harvest printed wood: {wood}");
+    assert_eq!(wood, 2, "cycle should be exactly zero-sum, got {wood}");
+}
