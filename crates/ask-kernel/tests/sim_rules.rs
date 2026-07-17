@@ -1105,3 +1105,23 @@ fn scoop_place_cycle_creates_nothing() {
     let inv = kw.world.get::<Inventory>(agent).unwrap();
     assert_eq!(inv.slots.len(), 0, "cycle must be zero-sum, pack: {:?}", inv.slots);
 }
+
+#[test]
+fn ore_vein_cycle_cannot_print_iron() {
+    // A crafted magma-treasure block is worth 3 iron total
+    // (1 dig bonus + 2 from smelt). Its recipe must cost ≥ 3 iron,
+    // or granite (infinite) becomes iron (infinite).
+    let recipe = ask_kernel::sandbox::recipes()
+        .iter()
+        .find(|r| r.id == "ore_vein")
+        .expect("ore_vein recipe");
+    let iron_cost: u32 = recipe
+        .needs
+        .iter()
+        .map(|n| match n {
+            ask_kernel::sandbox::RecipeNeed::Iron(q) => *q,
+            _ => 0,
+        })
+        .sum();
+    assert!(iron_cost >= 3, "ore_vein costs {iron_cost} iron < 3 — iron printing");
+}

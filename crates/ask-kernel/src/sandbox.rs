@@ -248,7 +248,7 @@ pub fn recipes() -> &'static [Recipe] {
         Recipe {
             id: "ore_vein",
             name: "ore vein",
-            needs: &[RecipeNeed::Iron(1), RecipeNeed::Terrain(id::GRANITE, 1)],
+            needs: &[RecipeNeed::Iron(3), RecipeNeed::Terrain(id::GRANITE, 2)],
             output: RecipeOut::Terrain(id::MAGMA_TREASURE),
         },
         Recipe {
