@@ -4,23 +4,16 @@
 
 import { el, S, loadPresets, savePresets, loadSquads, saveSquads } from "./state.js";
 import {
-  setupThemeSelect,
-  updateModeHud,
   renderPresets,
   updateSelectionPanel,
-  renderTracker,
   pushLog,
   hideInspectPopup,
 } from "./render.js";
 import {
   connect,
-  addToken,
-  clearTracked,
   refreshTracked,
-  setHumanControl,
   sendPromptToSelected,
   fetchOperatorInbox,
-  applySnapshot,
 } from "./net.js";
 import {
   installInputHandlers,
@@ -28,41 +21,8 @@ import {
   setSelectedAgents,
 } from "./input.js";
 import { mountMapview } from "./mapview.js";
-
-// token panel
-if (el.tokenAdd) {
-  el.tokenAdd.addEventListener("click", () => {
-    addToken(el.tokenInput && el.tokenInput.value);
-    if (el.tokenInput) el.tokenInput.value = "";
-  });
-}
-if (el.tokenClear) {
-  el.tokenClear.addEventListener("click", () => {
-    clearTracked();
-  });
-}
-if (el.tokenInput) {
-  el.tokenInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      addToken(el.tokenInput.value);
-      el.tokenInput.value = "";
-    }
-  });
-}
-if (el.btnFollow) {
-  el.btnFollow.addEventListener("click", () => {
-    S.cam.follow = true;
-    pushLog("FOLLOW ON");
-    if (S.lastSnap) applySnapshot(S.lastSnap);
-  });
-}
-if (el.btnMock) {
-  el.btnMock.addEventListener("click", () => {
-    setHumanControl(false);
-    pushLog("MOCK");
-  });
-}
+import { mountHud } from "./panels/hud.js";
+import { mountTracker } from "./panels/tracker.js";
 
 // inspect popup
 if (el.inspectClose) {
@@ -179,12 +139,11 @@ if (el.opInbox) {
 
 // boot
 mountMapview(el.map);
-setupThemeSelect();
-updateModeHud();
+mountHud(document.getElementById("hud"));
+mountTracker(document.getElementById("dock-track"));
 renderPresets();
 renderSquads();
 updateSelectionPanel();
-renderTracker();
 refreshTracked();
 installInputHandlers();
 connect();

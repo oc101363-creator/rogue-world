@@ -1,16 +1,9 @@
-/* ASK viewer — rendering: panels, themes, inspect popup.
- * Map/camera/draw moved to mapview.js (T4).
- * Imports state only; calls into net lazily where the tracker UI needs it. */
+/* ASK viewer — rendering: panels, inspect popup.
+ * Map/camera/draw moved to mapview.js (T4); hud/tracker/theme moved to
+ * panels/ (T5). Imports state only. */
 
-import { el, S, THEME_KEY, saveTracked, loadPresets, agentName } from "./state.js";
-import { THEMES, getTheme } from "./themes.js";
-import {
-  drawSnap,
-  centerOnTile,
-  visibleAgentIds,
-  updateSelectionHighlight,
-} from "./mapview.js";
-import { sendSubscribe } from "./net.js";
+import { el, S, loadPresets, agentName } from "./state.js";
+import { visibleAgentIds, updateSelectionHighlight } from "./mapview.js";
 
 // ---------------------------------------------------------------- log
 
@@ -58,43 +51,6 @@ export function formatEvents(events) {
 }
 
 // ---------------------------------------------------------------- panels
-
-export function renderTracker() {
-  if (!el.trackerList) return;
-  el.trackerList.innerHTML = "";
-  S.tracked.forEach((t, i) => {
-    const div = document.createElement("div");
-    div.className = "track-item" + (S.followToken === t.token ? " active" : "");
-    div.innerHTML =
-      `<button type="button" class="rm" data-i="${i}" title="remove">[x]</button>` +
-      `<div class="name" style="color:${t.color}">@ ${t.name || "agent"}</div>` +
-      `<div class="meta">id=${t.agent_id ?? "?"}  @(${t.x ?? "?"},${t.y ?? "?"})</div>` +
-      `<div class="tok">${t.token.slice(0, 18)}…</div>`;
-    div.addEventListener("click", (e) => {
-      if (e.target.classList.contains("rm")) return;
-      S.followToken = t.token;
-      S.cam.follow = true;
-      sendSubscribe();
-      if (t.x != null && t.y != null) {
-        centerOnTile(t.x, t.y);
-        if (S.lastSnap) drawSnap(S.lastSnap);
-      }
-      renderTracker();
-      pushLog(`FOLLOW ${t.name || t.token.slice(0, 12)}`);
-    });
-    div.querySelector(".rm").addEventListener("click", (e) => {
-      e.stopPropagation();
-      S.tracked.splice(i, 1);
-      if (S.followToken === t.token)
-        S.followToken = S.tracked.length ? S.tracked[0].token : null;
-      saveTracked();
-      renderTracker();
-      sendSubscribe();
-    });
-    el.trackerList.appendChild(div);
-  });
-  if (el.trackerHint) el.trackerHint.textContent = `${S.tracked.length} tracked (saved locally)`;
-}
 
 export function renderPresets() {
   if (!el.selPreset) return;
@@ -164,44 +120,6 @@ export function renderDelivery() {
     }
     el.selDelivery.appendChild(row);
   }
-}
-
-// ---------------------------------------------------------------- theme
-
-export function applyThemeChrome() {
-  const u = S.theme.ui;
-  document.documentElement.style.setProperty("--bg", u.bg);
-  document.documentElement.style.setProperty("--hud", u.hud);
-  document.documentElement.style.setProperty("--hud-muted", u.hudMuted);
-  document.documentElement.style.setProperty("--online", u.online);
-  document.documentElement.style.setProperty("--offline", u.offline);
-  document.body.style.background = u.bg;
-  el.viewport.style.background = u.bg;
-}
-
-export function setupThemeSelect() {
-  el.theme.innerHTML = "";
-  for (const t of THEMES) {
-    const opt = document.createElement("option");
-    opt.value = t.id;
-    opt.textContent = t.name;
-    if (t.id === S.theme.id) opt.selected = true;
-    el.theme.appendChild(opt);
-  }
-  el.theme.addEventListener("change", () => {
-    S.theme = getTheme(el.theme.value);
-    localStorage.setItem(THEME_KEY, S.theme.id);
-    applyThemeChrome();
-    S.display = null;
-    if (S.lastSnap) drawSnap(S.lastSnap);
-  });
-  applyThemeChrome();
-}
-
-export function updateModeHud() {
-  if (!el.mode) return;
-  el.mode.textContent = S.humanControl ? "PLAYER" : "MOCK";
-  el.mode.className = S.humanControl ? "mode-player" : "mode-mock";
 }
 
 // ---------------------------------------------------------------- inspect

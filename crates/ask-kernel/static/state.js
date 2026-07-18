@@ -9,19 +9,7 @@ export const WS_URL =
 export const el = {
   viewport: document.getElementById("viewport"),
   map: document.getElementById("map"),
-  status: document.getElementById("status"),
-  info: document.getElementById("info"),
-  cam: document.getElementById("cam"),
-  theme: document.getElementById("theme"),
-  mode: document.getElementById("mode"),
   log: document.getElementById("log"),
-  tokenInput: document.getElementById("token-input"),
-  tokenAdd: document.getElementById("token-add"),
-  tokenClear: document.getElementById("token-clear"),
-  trackerList: document.getElementById("tracker-list"),
-  trackerHint: document.getElementById("tracker-hint"),
-  btnFollow: document.getElementById("btn-follow"),
-  btnMock: document.getElementById("btn-mock"),
   inspectPopup: document.getElementById("inspect-popup"),
   inspectTitle: document.getElementById("inspect-title"),
   inspectBody: document.getElementById("inspect-body"),
@@ -125,6 +113,7 @@ export function agentName(id) {
 /** The mutable viewer state. One bag, no hidden globals. */
 export const S = {
   display: null,
+  mapRoot: null,
   mapW: 0,
   mapH: 0,
   lastSnap: null,

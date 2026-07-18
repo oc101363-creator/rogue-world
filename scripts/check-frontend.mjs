@@ -4,9 +4,9 @@
  * reference errors — the frontend's compile step. */
 const elStub = () => ({
   style: { setProperty() {} },
-  classList: { add() {}, remove() {}, toggle() {} },
+  classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
   appendChild() {}, addEventListener() {}, insertBefore() {}, firstChild: null,
-  removeChild() {}, querySelectorAll: () => [],
+  removeChild() {}, querySelectorAll: () => [], querySelector: () => elStub(),
   set innerHTML(v) {}, get innerHTML() { return ""; },
   textContent: "", value: "", getContext: () => null,
 });
@@ -14,7 +14,8 @@ globalThis.location = { protocol: "http:", host: "x" };
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.document = {
   getElementById: elStub, createElement: elStub,
-  documentElement: { style: { setProperty() {} } }, body: { style: {} },
+  documentElement: { style: { setProperty() {} } },
+  body: { style: {}, classList: { add() {}, remove() {}, toggle() {}, contains: () => false } },
 };
 globalThis.window = { addEventListener() {} };
 globalThis.requestAnimationFrame = () => {};

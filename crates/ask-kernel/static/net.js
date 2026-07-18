@@ -1,24 +1,26 @@
 /* ASK viewer — server comms: WS lifecycle, snapshot application, actions,
- * tracking, messages, inspect fetches. Imports state + render + mapview. */
+ * tracking, messages, inspect fetches. Wire layer only: emits on the bus,
+ * never touches the DOM or draw pipeline directly. */
 
-import { el, S, WS_URL, TRACK_COLORS, inspectToken, saveTracked } from "./state.js";
+import { S, WS_URL, TRACK_COLORS, inspectToken, saveTracked } from "./state.js";
 import { ensureArtCatalog } from "./art.js";
-import { focusAgent, syncViewSize, centerOnTile, drawSnap } from "./mapview.js";
+import { focusAgent } from "./mapview.js";
+import { on, emit } from "./bus.js";
 import {
   pushLog,
-  formatEvents,
-  renderTracker,
-  updateModeHud,
   renderEntityInspect,
   renderCellInspect,
   renderDelivery,
 } from "./render.js";
 
+// tracker re-renders on this event; net resubscribes with the new focus
+on("tracked-changed", () => sendSubscribe());
+
 // ---------------------------------------------------------------- tracking
 
 export async function refreshTracked() {
   if (!S.tracked.length) {
-    renderTracker();
+    emit("tracked-changed");
     return;
   }
   await Promise.all(
@@ -37,12 +39,11 @@ export async function refreshTracked() {
     }),
   );
   saveTracked();
-  renderTracker();
+  emit("tracked-changed");
   if (S.cam.follow && S.followToken) {
     const t = S.tracked.find((x) => x.token === S.followToken);
-    if (t && t.x != null) {
-      centerOnTile(t.x, t.y);
-      if (S.lastSnap) drawSnap(S.lastSnap);
+    if (t && t.x != null && S.lastSnap) {
+      emit("snapshot", S.lastSnap); // re-centers on focus + redraws
     }
   }
 }
@@ -60,7 +61,7 @@ export async function addToken(tok) {
   await refreshTracked();
   S.followToken = token;
   S.cam.follow = true;
-  sendSubscribe();
+  emit("tracked-changed"); // tracker re-renders, net resubscribes
   pushLog(`+TRACK ${token.slice(0, 16)}…`);
 }
 
@@ -70,12 +71,11 @@ export function clearTracked() {
   S.followToken = null;
   S.lastMe = null;
   saveTracked();
-  renderTracker();
   pushLog("CLEARED tracked tokens");
   if (S.lastSnap) {
-    drawSnap(S.lastSnap);
+    emit("snapshot", S.lastSnap); // redraw without the old focus ring
   }
-  sendSubscribe();
+  emit("tracked-changed"); // tracker re-renders, net resubscribes
 }
 
 export async function refreshMe() {
@@ -95,7 +95,7 @@ export async function refreshMe() {
       t.y = d.self.y;
     }
     saveTracked();
-    renderTracker();
+    emit("tracked-changed");
   } catch (_) {}
 }
 
@@ -156,42 +156,36 @@ export function applySnapshot(snap) {
     .map((a) => a.name || `@${a.id}`)
     .slice(0, 4)
     .join(",");
-  el.info.textContent = `t=${snap.tick} ${snap.width}x${snap.height} agents=${agents.length}${
-    agent ? ` focus=${agent.name || agent.id} @(${agent.x},${agent.y})${hp}${pack}` : ""
-  } T=${trees} H=${huts} M=${mons}${actHud}${names ? " {" + names + "}" : ""}`;
+  emit(
+    "hud-info",
+    `t=${snap.tick} ${snap.width}x${snap.height} agents=${agents.length}${
+      agent ? ` focus=${agent.name || agent.id} @(${agent.x},${agent.y})${hp}${pack}` : ""
+    } T=${trees} H=${huts} M=${mons}${actHud}${names ? " {" + names + "}" : ""}`,
+  );
 
   if (snap.tick !== prevTick && snap.recent_events) {
-    formatEvents(snap.recent_events.filter((e) => e.type !== "tick_started"));
+    emit("events", snap.recent_events.filter((e) => e.type !== "tick_started"));
   }
   if (snap.tick !== prevTick && snap.tick % 5 === 0) {
     refreshTracked();
     refreshMe();
   }
 
-  if (S.cam.follow) {
-    S.mapW = snap.width;
-    S.mapH = snap.height;
-    syncViewSize();
-    if (agent) centerOnTile(agent.x, agent.y);
-  }
-  drawSnap(snap);
+  emit("snapshot", snap);
 }
 
 export function connect() {
-  el.status.textContent = "connecting";
-  el.status.className = "offline";
+  emit("conn-status", { text: "connecting", online: false });
   ensureArtCatalog().catch(function () {
     pushLog("ART: catalog load failed");
   });
   S.ws = new WebSocket(WS_URL);
   S.ws.onopen = () => {
-    el.status.textContent = "live";
-    el.status.className = "online";
+    emit("conn-status", { text: "live", online: true });
     sendSubscribe();
   };
   S.ws.onclose = () => {
-    el.status.textContent = "offline";
-    el.status.className = "offline";
+    emit("conn-status", { text: "offline", online: false });
     S.ws = null;
     setTimeout(connect, 1200);
   };
@@ -222,7 +216,7 @@ export function sendAction(action) {
     action,
   };
   S.humanControl = true;
-  updateModeHud();
+  emit("mode-changed", S.humanControl);
   if (S.ws && S.ws.readyState === WebSocket.OPEN) {
     S.ws.send(JSON.stringify(body));
     return;
@@ -239,13 +233,13 @@ export function sendAction(action) {
   }).catch(() => {});
 }
 
-export function setHumanControl(on) {
-  S.humanControl = on;
-  updateModeHud();
+export function setHumanControl(flag) {
+  S.humanControl = flag;
+  emit("mode-changed", S.humanControl);
   // /api/control is operator-only: the server requires the dev token.
   // Paste the dev token into the TRACK panel to enable this switch.
   const token = inspectToken();
-  const msg = { type: "control", human_control: on, token };
+  const msg = { type: "control", human_control: flag, token };
   if (S.ws && S.ws.readyState === WebSocket.OPEN) {
     S.ws.send(JSON.stringify(msg));
   } else {

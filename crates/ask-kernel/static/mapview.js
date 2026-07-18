@@ -2,12 +2,24 @@
  * Owns #map canvas + #select-box overlay. Emits camera-changed. */
 
 import { el, S, ZOOM_STEPS } from "./state.js";
-import { emit } from "./bus.js";
+import { on, emit } from "./bus.js";
 import { decodeFeatIds, lookForFeat, lookForEntity, materialColor } from "./art.js";
 
 /** Install the ROT display into the #map grid cell. */
 export function mountMapview(root) {
   S.mapRoot = root; // syncViewSize appends the canvas here
+
+  // the draw pipeline: net.js emits "snapshot", the map draws itself
+  on("snapshot", (snap) => {
+    S.mapW = snap.width;
+    S.mapH = snap.height;
+    syncViewSize();
+    if (S.cam.follow) {
+      const a = focusAgent();
+      if (a) centerOnTile(a.x, a.y);
+    }
+    drawSnap(snap);
+  });
 }
 
 // ---------------------------------------------------------------- selectors
@@ -108,7 +120,7 @@ export function syncViewSize() {
     S.display._themeId !== S.theme.id;
 
   if (needNew) {
-    el.map.innerHTML = "";
+    S.mapRoot.innerHTML = "";
     S.display = new ROT.Display({
       width: S.viewCols,
       height: S.viewRows,

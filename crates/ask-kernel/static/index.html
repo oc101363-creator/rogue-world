@@ -8,38 +8,10 @@
     <script src="https://cdn.jsdelivr.net/npm/rot-js@2.2.1/dist/rot.js"></script>
   </head>
   <body>
-    <header id="hud">
-      <span id="status">…</span>
-      <span id="mode" class="mode-mock">MOCK</span>
-      <span id="info"></span>
-      <span id="cam"></span>
-      <span class="spacer"></span>
-      <div id="theme-bar">
-        <label for="theme">THEME</label>
-        <select id="theme" aria-label="Map color theme"></select>
-        <button type="button" id="btn-follow" class="term-btn" title="Follow focused agent">[ FOLLOW ]</button>
-        <button type="button" id="btn-mock" class="term-btn secondary" title="Toggle mock">[ MOCK ]</button>
-        <button type="button" id="dock-toggle-l" class="term-btn secondary" title="Toggle left dock">[ ◀ ]</button>
-        <button type="button" id="dock-toggle-r" class="term-btn secondary" title="Toggle right dock">[ ▶ ]</button>
-      </div>
-    </header>
+    <header id="hud"></header>
 
     <main id="main">
-      <aside id="dock-track" class="dock">
-        <!-- LEGACY panel, migrated in Task 5 — id kept for old JS -->
-        <div id="tracker" aria-label="Agent tracker">
-          <div class="title">+-- AGENT TRACK --+</div>
-          <div class="muted">paste token to spectate</div>
-          <div class="row">
-            <input id="token-input" class="term-input" type="text" spellcheck="false"
-                   autocomplete="off" placeholder="ask1_…" aria-label="Agent token" />
-            <button type="button" id="token-add" class="term-btn" title="Add tracker">[+]</button>
-            <button type="button" id="token-clear" class="term-btn secondary" title="Clear all tracked tokens">[ CLEAR ]</button>
-          </div>
-          <div id="tracker-list"></div>
-          <div class="muted" id="tracker-hint">0 tracked (saved locally)</div>
-        </div>
-      </aside>
+      <aside id="dock-track" class="dock"></aside>
 
       <div id="viewport">
         <div id="select-box"></div>
