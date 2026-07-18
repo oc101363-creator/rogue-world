@@ -1,21 +1,19 @@
-/* ASK viewer — entry point: mount panels, wire tabs, install handlers,
- * connect. Modules: state.js (shared state) · net.js (server) · input.js
- * (keyboard/mouse) · mapview.js + panels/* (UI). This file only assembles. */
+/* ASK viewer — boot: mount panels into the grid shell, install input,
+ * connect. Panels own their DOM; cross-talk via bus.js only. */
 
-import { connect, refreshTracked } from "./net.js";
-import { installInputHandlers } from "./input.js";
-import { mountMapview } from "./mapview.js";
 import { mountHud } from "./panels/hud.js";
 import { mountTracker } from "./panels/tracker.js";
 import { mountDispatch } from "./panels/dispatch.js";
 import { mountInspect } from "./panels/inspect.js";
 import { mountLogview } from "./panels/logview.js";
+import { mountMapview } from "./mapview.js";
+import { installInputHandlers } from "./input.js";
 import { on } from "./bus.js";
+import { connect, refreshTracked } from "./net.js";
 
-// boot
-mountMapview(document.getElementById("map"));
 mountHud(document.getElementById("hud"));
 mountTracker(document.getElementById("dock-track"));
+mountMapview(document.getElementById("map"));
 mountDispatch(document.getElementById("tab-dispatch"));
 mountInspect(document.getElementById("tab-inspect"));
 mountLogview(document.getElementById("log"), document.getElementById("help"));
@@ -34,6 +32,6 @@ tabs.addEventListener("click", (e) => {
 document.addEventListener("ask-activate-inspect", () => activate("inspect"));
 on("activate-tab", activate);
 
-refreshTracked();
 installInputHandlers();
+refreshTracked();
 connect();

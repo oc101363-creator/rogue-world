@@ -92,6 +92,16 @@ messages to it land in the dev-only `OperatorInbox`
 (`GET /api/message/inbox`, consume-on-read). The ledger knows DELIVERY,
 never meaning — teams/roles/trust stay player-side.
 
+## Frontend (static/)
+
+Dock-grid shell (index.html = the DOM id contract) + self-contained panel
+modules (`mount(root)`; own template/queries/listeners). Cross-module
+traffic only via bus.js events (table in
+docs/superpowers/plans/2026-07-18-frontend-dock-rearchitecture.md).
+state.js holds S + storage + pure helpers — zero DOM refs. mapview owns
+the ROT canvas; net owns the wire; input turns gestures into intents.
+Verify with `node --test tests/frontend/` + `node scripts/check-frontend.mjs <modules>`.
+
 ## Key structures
 
 - `Grid` = row-major `Vec<u16>` frog feat ids; semantics in `f_info::FeatTable`
