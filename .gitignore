@@ -13,3 +13,8 @@ frogcomposband-master/src/frogcomposband
 
 # third-party reference checkout (not ours)
 参照对象frogcomposband-master/
+
+# scratch / OS junk
+.DS_Store
+.superpowers/
+.claude/worktrees/

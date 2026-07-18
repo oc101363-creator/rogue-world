@@ -108,9 +108,6 @@ async fn ws_action_requires_token() {
     let reg: Value = serde_json::from_str(&text[body_start..]).unwrap();
     let token = reg["token"].as_str().unwrap().to_string();
 
-    // position before
-    let (x0, y0) = (reg["x"].as_i64().unwrap() as i32, reg["y"].as_i64().unwrap() as i32);
-
     let url = format!("ws://{addr}/ws");
     let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
     ws.send(Message::Text(
