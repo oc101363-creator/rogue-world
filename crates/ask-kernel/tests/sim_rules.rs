@@ -1812,3 +1812,94 @@ fn fire_glows_and_glow_dies_with_it() {
     let glow = kw.world.resource::<ask_kernel::vision::GlowMask>();
     assert!(!glow.mask[(5 * w + 5) as usize], "glow must clear after fire dies");
 }
+
+#[test]
+fn deep_spring_runs_dry_and_extract_is_bounded() {
+    // one deep cell yields EXACTLY two shallow cells, then the spring is a
+    // normal shallow cell (thinning rules apply) — no infinite water blocks
+    let mut cfg = Config::default();
+    cfg.width = 33;
+    cfg.height = 22;
+    cfg.seed = 157;
+    let mut kw = KernelWorld::new(&cfg);
+    stage_fill(&mut kw, id::GRANITE);
+    {
+        let mut grid = kw.world.resource_mut::<Grid>();
+        for y in 4..8 {
+            for x in 4..8 {
+                grid.set(x, y, id::FLOOR);
+            }
+        }
+        grid.set(5, 5, id::DEEP_WATER);
+    }
+    // run until the deep cell itself converts (spring fired)
+    let mut converted = false;
+    for _ in 0..(8 * 400) {
+        run_process_ticks(&mut kw, 1);
+        if kw.world.resource::<Grid>().get(5, 5) == Some(id::SHALLOW_WATER) {
+            converted = true;
+            break;
+        }
+    }
+    assert!(converted, "deep spring never converted to shallow");
+    // total extractable shallow blocks from one deep cell is bounded (<= 2)
+    let g = kw.world.resource::<Grid>();
+    let shallow_now = g
+        .cells
+        .iter()
+        .filter(|&&f| f == id::SHALLOW_WATER)
+        .count();
+    assert!(shallow_now <= 2, "spring minted more than 2 shallow cells: {shallow_now}");
+}
+
+#[test]
+fn terrain_changed_from_is_target_prior_feat() {
+    use ask_kernel::components::VisionMemory;
+
+    let mut cfg = Config::default();
+    cfg.width = 33;
+    cfg.height = 22;
+    cfg.seed = 163;
+    let mut kw = KernelWorld::new(&cfg);
+    stage_fill(&mut kw, id::GRANITE);
+    {
+        let mut grid = kw.world.resource_mut::<Grid>();
+        grid.set(5, 5, id::FIRE);
+        grid.set(6, 5, id::GRASS);
+    }
+    // run until the grass catches fire
+    let mut ev_ok = false;
+    for _ in 0..(8 * 60) {
+        kw.world.resource_mut::<EventBuf>().drain();
+        run_process_ticks(&mut kw, 1);
+        for e in kw.world.resource_mut::<EventBuf>().drain() {
+            if let GameEvent::TerrainChanged { at, from, to, .. } = e {
+                if at == (6, 5) && to == id::FIRE {
+                    assert_eq!(from, id::GRASS, "from must be the TARGET's prior feat");
+                    ev_ok = true;
+                }
+            }
+        }
+        if ev_ok {
+            break;
+        }
+    }
+    assert!(ev_ok, "never saw the spread event");
+    let _ = VisionMemory::new(1, 1);
+}
+
+#[test]
+fn process_events_hidden_from_memory_only_cells() {
+    // TerrainChanged requires display_class 2 (currently visible), not memory
+    let mut vis = ask_kernel::vision::VisionMap::new(10, 10);
+    vis.flags[(2 * 10 + 3) as usize] = ask_kernel::vision::F_MARK; // remembered only
+    let ev = GameEvent::TerrainChanged {
+        at: (3, 2),
+        from: 96,
+        to: 99,
+        cause: ask_kernel::process_rules::Cause::Fire,
+    };
+    assert!(!ask_kernel::events::event_visible(&ev, &vis, None));
+    vis.flags[(2 * 10 + 3) as usize] = ask_kernel::vision::F_VIEW | ask_kernel::vision::F_LITE;
+    assert!(ask_kernel::events::event_visible(&ev, &vis, None));
+}

@@ -223,7 +223,9 @@ pub fn event_visible(ev: &GameEvent, vis: &crate::vision::VisionMap, self_sid: O
         GameEvent::Deconstructed { at, .. } => at_seen(*at),
         GameEvent::AgentDied { entity, at } => is_self(*entity) || at_seen(*at),
         GameEvent::AgentRespawned { entity, at } => is_self(*entity) || at_seen(*at),
-        GameEvent::TerrainChanged { at, .. } => at_seen(*at),
+        // autonomous world edits: visible-only (memory cells must not become
+        // a live intel feed — see VisionMemory remembered-terrain rule)
+        GameEvent::TerrainChanged { at, .. } => vis.display_class(at.0, at.1) == 2,
         GameEvent::Consumed { entity, .. } => is_self(*entity),
     }
 }

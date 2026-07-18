@@ -55,7 +55,7 @@ fn neighbor_matches(grid: &Grid, x: i32, y: i32, cond: &NeighborCond) -> Option<
                 .filter(|info| process_rules::is_flow_target(info))
                 .map(|_| (x + dx, y + dy))
         }),
-        NeighborCond::DirtWithWaterNear => {
+        NeighborCond::DirtWithWaterNear(r) => {
             let dirt = dirs.iter().find_map(|&(dx, dy)| {
                 if grid.get(x + dx, y + dy) == Some(f_info::id::DIRT) {
                     Some((x + dx, y + dy))
@@ -63,7 +63,6 @@ fn neighbor_matches(grid: &Grid, x: i32, y: i32, cond: &NeighborCond) -> Option<
                     None
                 }
             })?;
-            let r: i32 = 3;
             for dy in -r..=r {
                 for dx in -r..=r {
                     if dx.abs() + dy.abs() > r || (dx == 0 && dy == 0) {
@@ -125,10 +124,15 @@ pub fn process_world(world: &mut World) {
                 if roll(seed, tick, idx) >= rule.chance_pct {
                     continue;
                 }
+                let tidx = (ny * w + nx) as usize;
+                if !matches!(rule.neighbors, NeighborCond::None) && claimed.contains(&tidx) {
+                    continue; // first rule to claim a TARGET wins this tick
+                }
+                let target_prior = cells[tidx];
                 match rule.action {
                     ProcessAction::NeighborBecomes(f) => {
-                        claimed.insert((ny * w + nx) as usize);
-                        changed.push((nx, ny, f, feat, rule.cause));
+                        claimed.insert(tidx);
+                        changed.push((nx, ny, f, target_prior, rule.cause));
                     }
                     ProcessAction::SelfBecomes(f) => {
                         claimed.insert(idx);

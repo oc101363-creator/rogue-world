@@ -91,7 +91,10 @@ impl GlowMask {
 /// darkness mechanic. ASK light sources are an explicit set instead:
 /// spreading fire today, torch posts tomorrow.
 fn is_light_source(feat: f_info::FeatId) -> bool {
-    feat == f_info::id::FIRE
+    f_info::table()
+        .get(feat)
+        .map(|f| f.lit)
+        .unwrap_or(false)
 }
 
 pub fn recompute_glow(world: &mut World) {

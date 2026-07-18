@@ -47,8 +47,12 @@ static/         web client (identity-first render from feat_ids + /api/art)
    `dig_place_cannot_print_iron`, `craft_chain_never_net_positive`,
    `plant_scoop_harvest_zero_sum`.
    World processes follow the same law: fire consumes fuel and its ash rate
-   is < 1 block per wood block; deep water produces slower (2%) than shallow
-   water thins out (8%); trees never self-replicate (plant only).
+   is < 1 block per wood block; deep springs RUN DRY (one deep cell yields
+   exactly two shallow cells, and 2-shallow→1-deep craft makes the cycle
+   zero-sum); trees never self-replicate (plant only). Carve-out: the
+   grass/ash micro-economy (eat grass for hp, burn farm for ~10% rubble)
+   is sanctioned — it has no path to wood/iron and is bounded by fuel
+   cost and hp cap.
 
 ## Tick phases (sole entry: `Sim::step`)
 

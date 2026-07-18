@@ -21,8 +21,8 @@ pub enum NeighborCond {
     AnyFeat(FeatId),
     /// Water may flow here: walk && !water && !door.
     FlowTarget,
-    /// Any 4-neighbor DIRT, with water within Manhattan distance 3.
-    DirtWithWaterNear,
+    /// Any 4-neighbor DIRT, with water within Manhattan distance N.
+    DirtWithWaterNear(i32),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -108,7 +108,13 @@ pub fn rules() -> &'static [ProcessRule] {
             name: "water_flow_deep",
             on: CellCond::FeatIs(id::DEEP_WATER),
             neighbors: NeighborCond::FlowTarget,
-            action: ProcessAction::NeighborBecomes(id::SHALLOW_WATER),
+            // the spring RUNS DRY: the deep cell becomes shallow itself when
+            // it flows, so one deep cell yields exactly two shallow cells
+            // (and craft 2-shallow→1-deep makes the cycle zero-sum)
+            action: ProcessAction::NeighborAndSelf {
+                neighbor: id::SHALLOW_WATER,
+                self_becomes: Some((id::SHALLOW_WATER, 100)),
+            },
             chance_pct: b::WATER_FLOW_DEEP_PCT,
             cause: Cause::Water,
         },
@@ -126,7 +132,7 @@ pub fn rules() -> &'static [ProcessRule] {
         ProcessRule {
             name: "grass_spread",
             on: CellCond::Grass,
-            neighbors: NeighborCond::DirtWithWaterNear,
+            neighbors: NeighborCond::DirtWithWaterNear(3),
             action: ProcessAction::NeighborBecomes(id::GRASS),
             chance_pct: b::GRASS_SPREAD_PCT,
             cause: Cause::Growth,

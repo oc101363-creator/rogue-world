@@ -78,18 +78,29 @@ fn use_ignite(world: &mut World, agent: Entity, eid: u64, slot_i: usize, dx: i32
             return;
         }
     }
+    let prior = world.resource::<Grid>().get(tx, ty).unwrap_or(0);
     world.resource_mut::<Grid>().set(tx, ty, id::FIRE);
     world
         .resource_mut::<EventBuf>()
         .push(GameEvent::TerrainChanged {
             at: (tx, ty),
-            from: 0,
+            from: prior,
             to: id::FIRE,
             cause: crate::process_rules::Cause::Fire,
         });
 }
 
 fn use_eat(world: &mut World, agent: Entity, eid: u64, slot_i: usize, matter: Matter) {
+    // confirm the body exists before the block leaves the pack
+    if world.get::<Health>(agent).is_none() {
+        world
+            .resource_mut::<EventBuf>()
+            .push(GameEvent::ActionRejected {
+                entity: eid,
+                reason: "no_health".into(),
+            });
+        return;
+    }
     let label = matter.label();
     if let Some(mut inv) = world.get_mut::<Inventory>(agent) {
         if inv.take_one(slot_i).is_none() {
