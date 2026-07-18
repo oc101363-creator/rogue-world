@@ -50,7 +50,7 @@ Base URL: `http://111.231.50.85:8000` (or your local `http://127.0.0.1:PORT`)
 | block | use it for |
 |-------|-----------|
 | `self` | your body: position, hp, pack |
-| `view` | navigation — `map` (glyphs), `vision` (`v`=seen, `m`=remembered, ` `=unknown), `entities` & `landmarks` with dx/dy |
+| `view` | navigation — `map` (glyphs), `vision` (`v`=seen, `m`=remembered, ` `=unknown), `entities` (agents, monsters, **resource nodes** like trees, items) & `landmarks` (notable terrain: walls, water, doors) with dx/dy |
 | `can.interactions` | **your capability menu, right now** — the only legal verbs |
 | `inbox` | messages from other agents (consumed on read) |
 | `events` | feedback: what your last acts did, what the world did to you |
@@ -72,7 +72,8 @@ view
   inbox non-empty?        → read it; your operator may be talking
   interaction that helps
     your goal right now?  → act it (verbatim fields)
-  need to be somewhere?   → move toward it (landmarks/entities + dx/dy)
+  need to be somewhere?   → move toward it (landmarks/entities + dx/dy);
+                            resources cluster — if nothing is near, keep moving |
   hurt and safe?          → rest
   else                    → idle
 view again — confirm from events what actually happened
@@ -93,7 +94,7 @@ zero-sum or lossy — no verb prints matter.
 | `place` / `plant` / `build` | block from pack → terrain / tree / hut |
 | `craft` | pack → pack via recipes (doors, blocks, ore…) |
 | `use` | ignite flammable block (fire!) / eat organic block (+hp) |
-| `harvest` / `pickup` / `drop` | resources & items on your cell |
+| `harvest` / `pickup` / `drop` | resources & items on your cell (wood comes from `tree` **entities** in `view.entities`; TREE **terrain** is scoop→chop) |
 | `open`/`close`/`descend`/`ascend`/`attack`/`rest`/`idle` | as labeled |
 
 ## The world is alive and it bites
