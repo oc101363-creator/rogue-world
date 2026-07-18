@@ -8,117 +8,103 @@
     <script src="https://cdn.jsdelivr.net/npm/rot-js@2.2.1/dist/rot.js"></script>
   </head>
   <body>
-    <div id="viewport">
-      <div id="select-box"></div>
-      <div id="map"></div>
-    </div>
-
-    <div id="hud">
+    <header id="hud">
       <span id="status">…</span>
       <span id="mode" class="mode-mock">MOCK</span>
       <span id="info"></span>
       <span id="cam"></span>
-    </div>
+      <span class="spacer"></span>
+      <div id="theme-bar">
+        <label for="theme">THEME</label>
+        <select id="theme" aria-label="Map color theme"></select>
+        <button type="button" id="btn-follow" class="term-btn" title="Follow focused agent">[ FOLLOW ]</button>
+        <button type="button" id="btn-mock" class="term-btn secondary" title="Toggle mock">[ MOCK ]</button>
+        <button type="button" id="dock-toggle-l" class="term-btn secondary" title="Toggle left dock">[ ◀ ]</button>
+        <button type="button" id="dock-toggle-r" class="term-btn secondary" title="Toggle right dock">[ ▶ ]</button>
+      </div>
+    </header>
 
-    <aside id="tracker" aria-label="Agent tracker">
-      <div class="title">+-- AGENT TRACK --+</div>
-      <div class="muted">paste token to spectate</div>
-      <div class="row">
-        <input
-          id="token-input"
-          class="term-input"
-          type="text"
-          spellcheck="false"
-          autocomplete="off"
-          placeholder="ask1_…"
-          aria-label="Agent token"
-        />
-        <button type="button" id="token-add" class="term-btn" title="Add tracker">
-          [+]
-        </button>
-        <button type="button" id="token-clear" class="term-btn secondary" title="Clear all tracked tokens">
-          [ CLEAR ]
-        </button>
-      </div>
-      <div id="tracker-list"></div>
-      <div class="muted" id="tracker-hint">0 tracked (saved locally)</div>
-    </aside>
+    <main id="main">
+      <aside id="dock-track" class="dock">
+        <!-- LEGACY panel, migrated in Task 5 — id kept for old JS -->
+        <div id="tracker" aria-label="Agent tracker">
+          <div class="title">+-- AGENT TRACK --+</div>
+          <div class="muted">paste token to spectate</div>
+          <div class="row">
+            <input id="token-input" class="term-input" type="text" spellcheck="false"
+                   autocomplete="off" placeholder="ask1_…" aria-label="Agent token" />
+            <button type="button" id="token-add" class="term-btn" title="Add tracker">[+]</button>
+            <button type="button" id="token-clear" class="term-btn secondary" title="Clear all tracked tokens">[ CLEAR ]</button>
+          </div>
+          <div id="tracker-list"></div>
+          <div class="muted" id="tracker-hint">0 tracked (saved locally)</div>
+        </div>
+      </aside>
 
-    <div id="theme-bar">
-      <div class="title">+ SYS +</div>
-      <label for="theme">MAP THEME</label>
-      <select id="theme" aria-label="Map color theme"></select>
-      <button type="button" id="btn-follow" class="term-btn" title="Follow focused agent">
-        [ FOLLOW ]
-      </button>
-      <button type="button" id="btn-mock" class="term-btn secondary" title="Toggle mock">
-        [ MOCK ]
-      </button>
-    </div>
+      <div id="viewport">
+        <div id="select-box"></div>
+        <div id="map"></div>
+      </div>
 
-    <div id="selector-panel">
-      <div class="title">+ SELECTOR +</div>
-      <div class="muted" id="sel-count">0 agents selected</div>
-      <div class="muted">LMB drag box · double-click all visible · MMB/RMB pan</div>
-      <div id="sel-chips"></div>
-      <div class="row">
-        <button type="button" id="sel-all-vis" class="term-btn" title="Select all agents currently in FOV">
-          [ ALL VIS ]
-        </button>
-        <button type="button" id="sel-clear" class="term-btn secondary" title="Clear selection">
-          [ CLEAR ]
-        </button>
-      </div>
-      <div class="row">
-        <select id="squad-list" class="term-input" title="Saved squads"></select>
-        <button type="button" id="squad-load" class="term-btn" title="Load squad as selection">[LOAD]</button>
-        <button type="button" id="squad-del" class="term-btn secondary" title="Delete squad">[x]</button>
-      </div>
-      <div class="row">
-        <input id="squad-name" class="term-input" type="text" placeholder="squad name" />
-        <button type="button" id="squad-save" class="term-btn" title="Save current selection as squad">[SAVE]</button>
-      </div>
-      <div class="row">
-        <select id="sel-preset" class="term-input"></select>
-        <button type="button" id="sel-preset-del" class="term-btn secondary" title="Delete preset">[x]</button>
-      </div>
-      <textarea
-        id="sel-text"
-        class="term-input"
-        rows="4"
-        placeholder="Type a prompt to send to selected agents..."
-      ></textarea>
-      <div class="row">
-        <input
-          id="sel-preset-name"
-          class="term-input"
-          type="text"
-          placeholder="preset name"
-        />
-        <button type="button" id="sel-preset-save" class="term-btn">[SAVE]</button>
-      </div>
-      <div class="row">
-        <button type="button" id="sel-send" class="term-btn">[ SEND ]</button>
-        <button type="button" id="op-inbox" class="term-btn secondary" title="Read operator inbox (dev token)">
-          [ OP INBOX ]
-        </button>
-      </div>
-      <div id="sel-delivery"></div>
-    </div>
+      <aside id="dock-command" class="dock">
+        <nav id="command-tabs">
+          <button type="button" class="tab-btn active" data-tab="dispatch">DISPATCH</button>
+          <button type="button" class="tab-btn" data-tab="inspect">INSPECT</button>
+        </nav>
+        <section id="tab-dispatch" class="tab-page active">
+          <!-- LEGACY panel, migrated in Task 6 — id kept for old JS -->
+          <div id="selector-panel">
+            <div class="muted" id="sel-count">0 agents selected</div>
+            <div class="muted">LMB drag box · double-click all visible · MMB/RMB pan</div>
+            <div id="sel-chips"></div>
+            <div class="row">
+              <button type="button" id="sel-all-vis" class="term-btn" title="Select all agents currently in FOV">[ ALL VIS ]</button>
+              <button type="button" id="sel-clear" class="term-btn secondary" title="Clear selection">[ CLEAR ]</button>
+            </div>
+            <div class="row">
+              <select id="squad-list" class="term-input" title="Saved squads"></select>
+              <button type="button" id="squad-load" class="term-btn" title="Load squad as selection">[LOAD]</button>
+              <button type="button" id="squad-del" class="term-btn secondary" title="Delete squad">[x]</button>
+            </div>
+            <div class="row">
+              <input id="squad-name" class="term-input" type="text" placeholder="squad name" />
+              <button type="button" id="squad-save" class="term-btn" title="Save current selection as squad">[SAVE]</button>
+            </div>
+            <div class="row">
+              <select id="sel-preset" class="term-input"></select>
+              <button type="button" id="sel-preset-del" class="term-btn secondary" title="Delete preset">[x]</button>
+            </div>
+            <textarea id="sel-text" class="term-input" rows="4"
+              placeholder="Type a prompt to send to selected agents..."></textarea>
+            <div class="row">
+              <input id="sel-preset-name" class="term-input" type="text" placeholder="preset name" />
+              <button type="button" id="sel-preset-save" class="term-btn">[SAVE]</button>
+            </div>
+            <div class="row">
+              <button type="button" id="sel-send" class="term-btn">[ SEND ]</button>
+              <button type="button" id="op-inbox" class="term-btn secondary" title="Read operator inbox (dev token)">[ OP INBOX ]</button>
+            </div>
+            <div id="sel-delivery"></div>
+          </div>
+        </section>
+        <section id="tab-inspect" class="tab-page">
+          <!-- LEGACY popup content lands here in Task 7 -->
+          <div id="inspect-popup" class="term-panel visible">
+            <div class="title"><span id="inspect-title">INSPECT</span></div>
+            <div id="inspect-body"></div>
+          </div>
+        </section>
+      </aside>
+    </main>
 
-    <div id="log" aria-live="polite"></div>
-
-    <div id="help">
-      KEYS: arrows move · g interact · LMB-drag box select · double-click all visible · MMB/RMB pan · right-click inspect · Ctrl/Shift add · SPACE follow · m mock
-    </div>
-
-    <div id="inspect-popup" class="term-panel">
-      <div class="title">
-        <span id="inspect-title">INSPECT</span>
-        <button type="button" id="inspect-close" class="rm" title="Close">[x]</button>
+    <footer id="bottom">
+      <div id="dock-log">
+        <div id="log" aria-live="polite"></div>
       </div>
-      <div id="inspect-body"></div>
-    </div>
+      <div id="help">
+        KEYS: arrows move · g interact · LMB-drag box select · double-click all visible · MMB/RMB pan · right-click inspect · Ctrl/Shift add · SPACE follow · m mock
+      </div>
+    </footer>
 
     <script type="module" src="/static/app.js?v=__ASK_VER__"></script>
   </body>
