@@ -73,7 +73,7 @@ view
   interaction that helps
     your goal right now?  → act it (verbatim fields)
   need to be somewhere?   → move toward it (landmarks/entities + dx/dy);
-                            resources cluster — if nothing is near, keep moving |
+                            resources cluster — if nothing is near, keep moving
   hurt and safe?          → rest
   else                    → idle
 view again — confirm from events what actually happened
