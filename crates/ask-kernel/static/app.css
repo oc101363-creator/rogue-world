@@ -1,6 +1,6 @@
-/* ASK viewer — dock-grid shell + terminal primitives.
- * No fixed positioning anywhere: layout is one CSS grid; panels flow
- * inside their dock cells. */
+/* ASK viewer — map-first overlay shell + terminal primitives.
+ * The map IS the page (full-window canvas); hud/panels/log float above
+ * it like browser extensions, each collapsible to a chip. */
 
 :root {
   /* Design tokens from Rogue-80 */
@@ -34,9 +34,6 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  height: 100vh;
   background: var(--bg, #0a0a0c);
   color: var(--r80-text, #c8d0d8);
   font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -44,38 +41,8 @@ body {
   overflow: hidden;
 }
 
-/* --- hud --- */
-#hud {
-  display: flex; align-items: center; gap: var(--space-sm, 8px);
-  padding: 4px var(--space-sm, 8px);
-  border-bottom: 1px solid var(--r80-text, #c8d0d8);
-  white-space: nowrap; overflow: hidden;
-}
-#hud .spacer { flex: 1; }
-#status.online { color: var(--online, #00ff00); }
-#status.offline { color: var(--offline, #ff5555); }
-#mode.mode-mock { color: var(--r80-accent, #ffcc00); }
-#mode.mode-human, #mode.mode-player { color: var(--online, #00ff00); }
-#info, #cam { opacity: 0.8; }
-
-/* --- main grid --- */
-#main {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  min-height: 0;
-}
-.dock {
-  width: 300px; max-width: 42vw;
-  overflow-y: auto; padding: var(--space-sm, 8px);
-  display: flex; flex-direction: column; gap: var(--space-sm, 8px);
-}
-#dock-track { border-right: 1px solid var(--r80-neutral, #2a2d34); }
-#dock-command { border-left: 1px solid var(--r80-neutral, #2a2d34); padding: 0; }
-body.l-collapsed #dock-track,
-body.r-collapsed #dock-command { display: none; }
-
-/* --- viewport --- */
-#viewport { position: relative; overflow: hidden; min-width: 0; cursor: grab; user-select: none; }
+/* --- the map IS the page --- */
+#viewport { position: fixed; inset: 0; overflow: hidden; cursor: grab; user-select: none; }
 #viewport.dragging { cursor: grabbing; }
 #map { position: absolute; inset: 0; }
 #map canvas { image-rendering: pixelated; }
@@ -86,6 +53,48 @@ body.r-collapsed #dock-command { display: none; }
 }
 #select-box.active { display: block; }
 
+/* --- hud: slim translucent strip floating over the map --- */
+#hud {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 5;
+  display: flex; align-items: center; gap: var(--space-sm, 8px);
+  padding: 3px var(--space-sm, 8px);
+  background: rgba(0, 0, 0, 0.72);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+  white-space: nowrap; overflow: hidden;
+}
+#hud .spacer { flex: 1; }
+#status.online { color: var(--online, #00ff00); }
+#status.offline { color: var(--offline, #ff5555); }
+#mode.mode-mock { color: var(--r80-accent, #ffcc00); }
+#mode.mode-human, #mode.mode-player { color: var(--online, #00ff00); }
+#info, #cam { opacity: 0.8; }
+
+/* --- floating panels: browser-extension chrome over the map --- */
+.float-panel {
+  position: absolute; z-index: 4;
+  width: 280px; max-width: 42vw;
+  background: rgba(0, 0, 0, 0.78);
+  border: 1px solid var(--r80-neutral, #2a2d34);
+}
+#dock-track { top: 32px; left: var(--space-sm, 8px); }
+#dock-command { top: 32px; right: var(--space-sm, 8px); }
+#dock-log { bottom: var(--space-sm, 8px); left: var(--space-sm, 8px); width: 320px; }
+.float-collapse {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; border-bottom: 1px solid var(--r80-neutral, #2a2d34);
+  color: var(--r80-accent, #ffcc00); font: inherit; font-size: 0.85em;
+  padding: 2px 6px; cursor: pointer;
+}
+.float-collapse:hover { color: var(--r80-secondary, #ffcc00); }
+.float-body { padding: var(--space-sm, 8px); overflow-y: auto; max-height: calc(100vh - 140px); }
+#dock-command .float-body { padding: 0; }
+#dock-command .tab-page { padding: var(--space-sm, 8px); }
+#dock-log .float-body { max-height: 16vh; padding: 2px var(--space-sm, 8px); overflow-y: auto; }
+/* collapsed: just the chip, nothing else */
+.float-panel.collapsed { width: auto; background: rgba(0, 0, 0, 0.6); }
+.float-panel.collapsed .float-body { display: none; }
+.float-panel.collapsed .float-collapse { border-bottom: none; }
+
 /* --- command tabs --- */
 #command-tabs { display: flex; border-bottom: 1px solid var(--r80-neutral, #2a2d34); }
 .tab-btn {
@@ -94,17 +103,11 @@ body.r-collapsed #dock-command { display: none; }
   border-bottom: 2px solid transparent;
 }
 .tab-btn.active { opacity: 1; border-bottom-color: var(--r80-accent, #ffcc00); }
-.tab-page { display: none; padding: var(--space-sm, 8px); overflow-y: auto; }
+.tab-page { display: none; overflow-y: auto; }
 .tab-page.active { display: block; }
 
-/* --- bottom --- */
-#bottom {
-  display: grid; grid-template-columns: 1fr auto;
-  border-top: 1px solid var(--r80-text, #c8d0d8);
-  min-height: 0;
-}
-#dock-log { overflow-y: auto; max-height: 20vh; padding: 2px var(--space-sm, 8px); }
-#help { padding: 4px var(--space-sm, 8px); opacity: 0.6; align-self: end; }
+/* --- log + help inside the small overlay --- */
+#help { padding-top: 2px; opacity: 0.5; font-size: 0.8em; }
 
 /* --- terminal primitives (unchanged semantics) --- */
 .term-btn {
@@ -146,13 +149,7 @@ textarea.term-input { resize: vertical; min-height: 60px; width: 100%; }
 #inspect-body td { border: 1px solid var(--r80-neutral, #2a2d34); padding: 1px 6px; vertical-align: top; }
 #inspect-body td:first-child { opacity: 0.7; white-space: nowrap; }
 
-/* small screens: docks overlay the map instead of squeezing it */
+/* small screens: floats already overlay the map; just cap their width */
 @media (max-width: 1100px) {
-  .dock {
-    position: absolute; top: 0; bottom: 0; z-index: 6;
-    background: var(--bg, #0a0a0c); max-width: 80vw;
-  }
-  #dock-track { left: 0; }
-  #dock-command { right: 0; }
-  #main { position: relative; }
+  .float-panel { max-width: 80vw; }
 }

@@ -15,6 +15,7 @@ globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.document = {
   getElementById: elStub, createElement: elStub,
   addEventListener() {}, dispatchEvent() {},
+  querySelectorAll: () => [],
   documentElement: { style: { setProperty() {} } },
   body: { style: {}, classList: { add() {}, remove() {}, toggle() {}, contains: () => false } },
 };

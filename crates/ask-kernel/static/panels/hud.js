@@ -1,19 +1,10 @@
 /* HUD panel: connection status, mode, info line, cam readout, theme
- * select, FOLLOW/MOCK, dock collapse toggles. Owns #hud. */
+ * select, FOLLOW/MOCK. Owns #hud. (Panel collapse lives on each
+ * floating panel's own chip — not here.) */
 
 import { S } from "../state.js";
 import { on, emit, log } from "../bus.js";
 import { THEMES, getTheme } from "../themes.js";
-
-const DOCK_KEY = "ask-docks-v1";
-
-function loadDocks() {
-  try {
-    return JSON.parse(localStorage.getItem(DOCK_KEY) || "{}");
-  } catch (_) {
-    return {};
-  }
-}
 
 export function mountHud(root) {
   root.innerHTML = `
@@ -25,9 +16,7 @@ export function mountHud(root) {
     <label for="theme">THEME</label>
     <select id="theme" aria-label="Map color theme"></select>
     <button type="button" id="btn-follow" class="term-btn" title="Follow focused agent">[ FOLLOW ]</button>
-    <button type="button" id="btn-mock" class="term-btn secondary" title="Toggle mock">[ MOCK ]</button>
-    <button type="button" id="dock-toggle-l" class="term-btn secondary" title="Toggle left dock">[ ◀ ]</button>
-    <button type="button" id="dock-toggle-r" class="term-btn secondary" title="Toggle right dock">[ ▶ ]</button>`;
+    <button type="button" id="btn-mock" class="term-btn secondary" title="Toggle mock">[ MOCK ]</button>`;
 
   const status = root.querySelector("#status");
   const mode = root.querySelector("#mode");
@@ -62,22 +51,6 @@ export function mountHud(root) {
     if (S.lastSnap) emit("snapshot", S.lastSnap); // force redraw
   });
   applyChrome();
-
-  // dock collapse (persisted)
-  const docks = loadDocks();
-  document.body.classList.toggle("l-collapsed", !!docks.l);
-  document.body.classList.toggle("r-collapsed", !!docks.r);
-  const toggle = (side) => {
-    const cls = side === "l" ? "l-collapsed" : "r-collapsed";
-    document.body.classList.toggle(cls);
-    const d = loadDocks();
-    d[side] = document.body.classList.contains(cls);
-    localStorage.setItem(DOCK_KEY, JSON.stringify(d));
-    emit("camera-changed"); // viewport resized → reclamp
-    if (S.lastSnap) emit("snapshot", S.lastSnap); // force redraw
-  };
-  root.querySelector("#dock-toggle-l").addEventListener("click", () => toggle("l"));
-  root.querySelector("#dock-toggle-r").addEventListener("click", () => toggle("r"));
 
   root.querySelector("#btn-follow").addEventListener("click", () => {
     S.cam.follow = true;

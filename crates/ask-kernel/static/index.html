@@ -8,32 +8,40 @@
     <script src="https://cdn.jsdelivr.net/npm/rot-js@2.2.1/dist/rot.js"></script>
   </head>
   <body>
+    <!-- The map IS the page. Everything else floats above it like a
+         browser extension: slim hud strip, collapsible side panels,
+         small log overlay. -->
+    <div id="viewport">
+      <div id="select-box"></div>
+      <div id="map"></div>
+    </div>
+
     <header id="hud"></header>
 
-    <main id="main">
-      <aside id="dock-track" class="dock"></aside>
+    <aside id="dock-track" class="float-panel">
+      <button type="button" class="float-collapse" data-panel="dock-track" title="collapse">[TRACK −]</button>
+      <div id="mount-track" class="float-body"></div>
+    </aside>
 
-      <div id="viewport">
-        <div id="select-box"></div>
-        <div id="map"></div>
-      </div>
-
-      <aside id="dock-command" class="dock">
+    <aside id="dock-command" class="float-panel">
+      <button type="button" class="float-collapse" data-panel="dock-command" title="collapse">[CMD −]</button>
+      <div class="float-body">
         <nav id="command-tabs">
           <button type="button" class="tab-btn active" data-tab="dispatch">DISPATCH</button>
           <button type="button" class="tab-btn" data-tab="inspect">INSPECT</button>
         </nav>
         <section id="tab-dispatch" class="tab-page active"></section>
         <section id="tab-inspect" class="tab-page"></section>
-      </aside>
-    </main>
-
-    <footer id="bottom">
-      <div id="dock-log">
-        <div id="log" aria-live="polite"></div>
       </div>
-      <div id="help"></div>
-    </footer>
+    </aside>
+
+    <aside id="dock-log" class="float-panel">
+      <button type="button" class="float-collapse" data-panel="dock-log" title="collapse">[LOG −]</button>
+      <div class="float-body">
+        <div id="log" aria-live="polite"></div>
+        <div id="help"></div>
+      </div>
+    </aside>
 
     <script type="module" src="/static/app.js?v=__ASK_VER__"></script>
   </body>
