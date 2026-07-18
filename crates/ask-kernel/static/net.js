@@ -246,7 +246,7 @@ export function setHumanControl(flag) {
     fetch("/api/control", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ human_control: on, token }),
+      body: JSON.stringify({ human_control: flag, token }),
     }).catch(() => {});
   }
 }
