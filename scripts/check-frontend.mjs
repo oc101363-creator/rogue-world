@@ -14,6 +14,7 @@ globalThis.location = { protocol: "http:", host: "x" };
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.document = {
   getElementById: elStub, createElement: elStub,
+  addEventListener() {}, dispatchEvent() {},
   documentElement: { style: { setProperty() {} } },
   body: { style: {}, classList: { add() {}, remove() {}, toggle() {}, contains: () => false } },
 };

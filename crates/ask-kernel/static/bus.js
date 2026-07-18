@@ -1,6 +1,6 @@
 // crates/ask-kernel/static/bus.js
 /* Tiny pub/sub — the ONLY cross-module channel besides state.js.
- * Breaks the old render.js ↔ net.js import cycle: producers emit,
+ * Breaks the old render↔net import cycle: producers emit,
  * consumers subscribe, neither imports the other. */
 
 const listeners = new Map(); // event -> Set<fn>

@@ -1,9 +1,12 @@
 /* ASK viewer — map: ROT display, camera, draw, coordinate queries.
  * Owns #map canvas + #select-box overlay. Emits camera-changed. */
 
-import { el, S, ZOOM_STEPS } from "./state.js";
+import { S, ZOOM_STEPS } from "./state.js";
 import { on, emit } from "./bus.js";
 import { decodeFeatIds, lookForFeat, lookForEntity, materialColor } from "./art.js";
+
+const mapEl = document.getElementById("map");
+const viewportEl = document.getElementById("viewport");
 
 /** Install the ROT display into the #map grid cell. */
 export function mountMapview(root) {
@@ -84,7 +87,7 @@ export function cellSize() {
 }
 
 export function worldAtScreen(clientX, clientY) {
-  const mapRect = el.map.getBoundingClientRect();
+  const mapRect = mapEl.getBoundingClientRect();
   const cs = cellSize();
   const mx = clientX - mapRect.left;
   const my = clientY - mapRect.top;
@@ -97,7 +100,7 @@ export function worldAtScreen(clientX, clientY) {
 }
 
 export function viewportAtScreen(clientX, clientY) {
-  const rect = el.viewport.getBoundingClientRect();
+  const rect = viewportEl.getBoundingClientRect();
   return {
     sx: clientX - rect.left,
     sy: clientY - rect.top,
@@ -138,8 +141,8 @@ export function syncViewSize() {
     canvas.style.width = lw + "px";
     canvas.style.height = lh + "px";
     S.mapRoot.appendChild(canvas);
-    el.map.style.width = lw + "px";
-    el.map.style.height = lh + "px";
+    mapEl.style.width = lw + "px";
+    mapEl.style.height = lh + "px";
     S.display._viewCols = S.viewCols;
     S.display._viewRows = S.viewRows;
     S.display._cellSize = cs;
@@ -170,10 +173,10 @@ export function zoomBy(delta, anchorScreenX, anchorScreenY) {
   S.cam.zi = Math.max(0, Math.min(ZOOM_STEPS.length - 1, S.cam.zi + delta));
   if (S.cam.zi === oldZi) return;
 
-  const rect = el.viewport.getBoundingClientRect();
+  const rect = viewportEl.getBoundingClientRect();
   const sx = anchorScreenX ?? rect.width / 2;
   const sy = anchorScreenY ?? rect.height / 2;
-  const mapRect = el.map.getBoundingClientRect();
+  const mapRect = mapEl.getBoundingClientRect();
   const ox = sx - (mapRect.left - rect.left);
   const oy = sy - (mapRect.top - rect.top);
   const worldX = S.cam.tx + ox / oldCs;
@@ -313,16 +316,16 @@ export function drawSnap(snap) {
     }
   }
 
-  el.map.style.left = "0px";
-  el.map.style.top = "0px";
+  mapEl.style.left = "0px";
+  mapEl.style.top = "0px";
   const lw = S.viewCols * cellSize();
   const lh = S.viewRows * cellSize();
-  el.map.style.marginLeft =
-    lw < el.viewport.clientWidth
-      ? Math.floor((el.viewport.clientWidth - lw) / 2) + "px"
+  mapEl.style.marginLeft =
+    lw < viewportEl.clientWidth
+      ? Math.floor((viewportEl.clientWidth - lw) / 2) + "px"
       : "0px";
-  el.map.style.marginTop =
-    lh < el.viewport.clientHeight
-      ? Math.floor((el.viewport.clientHeight - lh) / 2) + "px"
+  mapEl.style.marginTop =
+    lh < viewportEl.clientHeight
+      ? Math.floor((viewportEl.clientHeight - lh) / 2) + "px"
       : "0px";
 }

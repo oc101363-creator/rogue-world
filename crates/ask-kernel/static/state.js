@@ -1,22 +1,12 @@
-/* ASK viewer — shared state (single state bag) + element refs + storage.
- * No imports: every other module may read/write S.* freely. */
+/* ASK viewer — shared state (single state bag) + storage.
+ * No imports: every other module may read/write S.* freely.
+ * Element refs live in the modules that own them (getElementById). */
 
 import { getTheme } from "./themes.js";
 import { emit } from "./bus.js";
 
 export const WS_URL =
   (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
-
-export const el = {
-  viewport: document.getElementById("viewport"),
-  map: document.getElementById("map"),
-  log: document.getElementById("log"),
-  inspectPopup: document.getElementById("inspect-popup"),
-  inspectTitle: document.getElementById("inspect-title"),
-  inspectBody: document.getElementById("inspect-body"),
-  inspectClose: document.getElementById("inspect-close"),
-  selectBox: document.getElementById("select-box"),
-};
 
 export const ZOOM_STEPS = [6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 40];
 export const THEME_KEY = "ask-theme";

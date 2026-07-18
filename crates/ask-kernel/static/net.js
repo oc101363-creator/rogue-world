@@ -5,8 +5,7 @@
 import { S, WS_URL, TRACK_COLORS, inspectToken, saveTracked } from "./state.js";
 import { ensureArtCatalog } from "./art.js";
 import { focusAgent } from "./mapview.js";
-import { on, emit } from "./bus.js";
-import { pushLog } from "./render.js";
+import { on, emit, log } from "./bus.js";
 
 // tracker re-renders on this event; net resubscribes with the new focus
 on("tracked-changed", () => sendSubscribe());
@@ -47,7 +46,7 @@ export async function addToken(tok) {
   const token = (tok || "").trim();
   if (!token) return;
   if (S.tracked.some((t) => t.token === token)) {
-    pushLog("already tracked");
+    log("already tracked");
     return;
   }
   const color = TRACK_COLORS[S.tracked.length % TRACK_COLORS.length];
@@ -57,7 +56,7 @@ export async function addToken(tok) {
   S.followToken = token;
   S.cam.follow = true;
   emit("tracked-changed"); // tracker re-renders, net resubscribes
-  pushLog(`+TRACK ${token.slice(0, 16)}…`);
+  log(`+TRACK ${token.slice(0, 16)}…`);
 }
 
 
@@ -66,7 +65,7 @@ export function clearTracked() {
   S.followToken = null;
   S.lastMe = null;
   saveTracked();
-  pushLog("CLEARED tracked tokens");
+  log("CLEARED tracked tokens");
   if (S.lastSnap) {
     emit("snapshot", S.lastSnap); // redraw without the old focus ring
   }
@@ -172,7 +171,7 @@ export function applySnapshot(snap) {
 export function connect() {
   emit("conn-status", { text: "connecting", online: false });
   ensureArtCatalog().catch(function () {
-    pushLog("ART: catalog load failed");
+    log("ART: catalog load failed");
   });
   S.ws = new WebSocket(WS_URL);
   S.ws.onopen = () => {
@@ -199,7 +198,7 @@ export function connect() {
 export function sendAction(action) {
   const token = inspectToken();
   if (!token) {
-    pushLog("NO TRACKED AGENT — paste a token");
+    log("NO TRACKED AGENT — paste a token");
     return;
   }
   const agent = focusAgent();
@@ -273,26 +272,26 @@ export async function apiOperatorInbox(token) {
 export async function fetchEntityInspect(id) {
   const token = inspectToken();
   if (!token) {
-    pushLog("INSPECT: track a token first");
+    log("INSPECT: track a token first");
     return;
   }
   try {
     const r = await fetch(`/api/entity?id=${id}&token=` + encodeURIComponent(token));
     const d = await r.json();
     if (!d.ok) {
-      pushLog("INSPECT: " + (d.reason || "failed"));
+      log("INSPECT: " + (d.reason || "failed"));
       return;
     }
     emit("inspect-show", { kind: "entity", data: d.entity });
   } catch (_) {
-    pushLog("INSPECT: network");
+    log("INSPECT: network");
   }
 }
 
 export async function fetchCellInspect(wx, wy) {
   const token = inspectToken();
   if (!token) {
-    pushLog("INSPECT: track a token first");
+    log("INSPECT: track a token first");
     return;
   }
   try {
@@ -301,12 +300,12 @@ export async function fetchCellInspect(wx, wy) {
     );
     const d = await r.json();
     if (!d.ok) {
-      pushLog("INSPECT: " + (d.reason || "failed"));
+      log("INSPECT: " + (d.reason || "failed"));
       return;
     }
     emit("inspect-show", { kind: "cell", data: d.cell });
   } catch (_) {
-    pushLog("INSPECT: network");
+    log("INSPECT: network");
   }
 }
 
