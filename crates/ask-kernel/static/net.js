@@ -1,17 +1,14 @@
 /* ASK viewer — server comms: WS lifecycle, snapshot application, actions,
- * tracking, messages, inspect fetches. Imports state + render. */
+ * tracking, messages, inspect fetches. Imports state + render + mapview. */
 
 import { el, S, WS_URL, TRACK_COLORS, inspectToken, saveTracked } from "./state.js";
 import { ensureArtCatalog } from "./art.js";
+import { focusAgent, syncViewSize, centerOnTile, drawSnap } from "./mapview.js";
 import {
   pushLog,
   formatEvents,
   renderTracker,
   updateModeHud,
-  drawSnap,
-  syncViewSize,
-  centerOnTile,
-  focusAgent,
   renderEntityInspect,
   renderCellInspect,
   renderDelivery,

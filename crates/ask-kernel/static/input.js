@@ -3,13 +3,9 @@
 
 import { el, S } from "./state.js";
 import {
-  pushLog,
   drawSnap,
   syncViewSize,
   clampCamera,
-  updateHudCam,
-  updateSelectionPanel,
-  updateSelectionHighlight,
   centerOnTile,
   focusAgent,
   worldAtScreen,
@@ -18,8 +14,9 @@ import {
   visibleAgentIds,
   cellSize,
   zoomBy,
-  hideInspectPopup,
-} from "./render.js";
+  updateSelectionHighlight,
+} from "./mapview.js";
+import { pushLog, updateSelectionPanel, hideInspectPopup } from "./render.js";
 import {
   sendAction,
   setHumanControl,
@@ -301,7 +298,6 @@ export function installInputHandlers() {
     }
     clampCamera();
     if (S.lastSnap) drawSnap(S.lastSnap);
-    updateHudCam();
   });
 
   window.addEventListener("mouseup", (e) => {
@@ -588,7 +584,6 @@ export function installInputHandlers() {
         S.cam.ty += d[1] * 2;
         clampCamera();
         if (S.lastSnap) drawSnap(S.lastSnap);
-        updateHudCam();
         return;
       }
       e.preventDefault();

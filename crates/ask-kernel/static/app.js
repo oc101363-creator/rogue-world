@@ -27,6 +27,7 @@ import {
   selectAllVisibleAgents,
   setSelectedAgents,
 } from "./input.js";
+import { mountMapview } from "./mapview.js";
 
 // token panel
 if (el.tokenAdd) {
@@ -177,6 +178,7 @@ if (el.opInbox) {
 }
 
 // boot
+mountMapview(el.map);
 setupThemeSelect();
 updateModeHud();
 renderPresets();
