@@ -25,8 +25,14 @@ pub(crate) struct ActionRequest {
     /// Opaque token from /api/register — the only accepted identity.
     #[serde(default)]
     token: Option<String>,
+    /// "I decided from the view at this tick" — server answers with
+    /// `ticks_behind` so the agent knows how stale its worldview was.
     #[serde(default)]
-    tick: Option<u64>,
+    base_tick: Option<u64>,
+    /// Client-chosen monotonic idempotency key (per agent). A duplicate or
+    /// older seq is rejected — network retries can't double-apply an act.
+    #[serde(default)]
+    seq: Option<u64>,
     action: Action,
 }
 
@@ -34,7 +40,18 @@ pub(crate) struct ActionRequest {
 pub(crate) struct ActionResponse {
     ok: bool,
     accepted: bool,
+    /// Tick at submit time.
     tick: u64,
+    /// The tick the action LANDS on (tick+1, exact: submit happens under
+    /// the sim lock, so no tick can slip in between).
+    applied_tick: u64,
+    /// True when this submit overwrote a still-pending earlier action
+    /// (last-write-wins within one tick).
+    replaced: bool,
+    /// Present when the request carried base_tick: how many ticks the
+    /// world had moved past the view the agent decided from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ticks_behind: Option<u64>,
     agent_id: Option<u64>,
     human_control: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -59,6 +76,19 @@ pub(crate) struct RegisterRequest {
 #[derive(Debug, Deserialize)]
 pub(crate) struct TokenQuery {
     token: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ViewQuery {
+    token: String,
+    /// Long-poll: hold the request until world tick > after_tick.
+    /// The natural pair to act's `applied_tick` — one round trip from
+    /// "I acted" to "here is what my act did".
+    #[serde(default)]
+    after_tick: Option<u64>,
+    /// Long-poll hold cap in ms (default 10s, hard max 30s).
+    #[serde(default)]
+    timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -151,12 +181,29 @@ pub(crate) async fn register(
 
 pub(crate) async fn view(
     State(st): State<AppState>,
-    Query(q): Query<TokenQuery>,
+    Query(q): Query<ViewQuery>,
 ) -> impl IntoResponse {
     // token → agent identity → world entity
     let Some(agent_id) = st.reg.resolve_token(&q.token) else {
         return Json(serde_json::json!({ "ok": false, "reason": "invalid_token" }));
     };
+    // Long-poll BEFORE touching the sim lock: wait for the world to move
+    // past after_tick (or the hold cap), then read a fresh view.
+    if let Some(after) = q.after_tick {
+        let cap = Duration::from_millis(q.timeout_ms.unwrap_or(10_000).min(30_000));
+        let mut rx = st.tick_rx.clone();
+        let wait = async move {
+            loop {
+                if *rx.borrow_and_update() > after {
+                    break;
+                }
+                if rx.changed().await.is_err() {
+                    break; // sim gone — fall through to a normal view
+                }
+            }
+        };
+        let _ = tokio::time::timeout(cap, wait).await;
+    }
     let mut sim = st.sim.lock().await;
     let agent_e = {
         let mut q2 = sim.kernel.world.query::<(Entity, &StableId)>();
@@ -167,8 +214,7 @@ pub(crate) async fn view(
     let Some(agent_e) = agent_e else {
         return Json(serde_json::json!({ "ok": false, "reason": "no_agent" }));
     };
-    let recent = recent_snapshot(&st).await;
-    match crate::agent_view::build_agent_view(&mut sim.kernel.world, agent_e, &recent) {
+    match crate::agent_view::build_agent_view(&mut sim.kernel.world, agent_e) {
         Some(v) => Json(v),
         None => Json(serde_json::json!({ "ok": false, "reason": "no_agent" })),
     }
@@ -178,60 +224,82 @@ pub(crate) async fn act(
     State(st): State<AppState>,
     Json(req): Json<ActionRequest>,
 ) -> impl IntoResponse {
-    let tick = {
-        let sim = st.sim.lock().await;
-        sim.kernel.tick()
-    };
-    if let Err(reason) = validate_action(&req.action) {
-        return Json(ActionResponse {
+    let respond = |accepted: bool,
+                   tick: u64,
+                   applied_tick: u64,
+                   replaced: bool,
+                   ticks_behind: Option<u64>,
+                   agent_id: Option<u64>,
+                   human: bool,
+                   reason: Option<&str>| {
+        Json(ActionResponse {
             ok: true,
-            accepted: false,
+            accepted,
             tick,
-            agent_id: req.agent_id,
-            human_control: st.bus.human_control(),
-            reason: Some(reason.into()),
-        });
+            applied_tick,
+            replaced,
+            ticks_behind,
+            agent_id,
+            human_control: human,
+            reason: reason.map(String::from),
+        })
+    };
+
+    // Shape check is cheap and needs no identity.
+    if let Err(reason) = validate_action(&req.action) {
+        let cur = *st.tick_rx.borrow();
+        return respond(
+            false,
+            cur,
+            cur + 1,
+            false,
+            None,
+            req.agent_id,
+            st.bus.human_control(),
+            Some(reason),
+        );
     }
 
     // Identity: token is mandatory. A bare `agent_id` is NOT an identity —
     // it lets any client drive any agent. When both are sent they must match.
-    let reject = |reason: &str, agent_id: Option<u64>| {
-        Json(ActionResponse {
-            ok: true,
-            accepted: false,
-            tick,
-            agent_id,
-            human_control: st.bus.human_control(),
-            reason: Some(reason.into()),
-        })
-    };
+    let cur = *st.tick_rx.borrow();
     let Some(ref tok) = req.token else {
-        return reject("token_required", None);
+        return respond(false, cur, cur + 1, false, None, None, st.bus.human_control(), Some("token_required"));
     };
     let Some(agent_id) = st.reg.resolve_token(tok) else {
-        return reject("invalid_token", None);
+        return respond(false, cur, cur + 1, false, None, None, st.bus.human_control(), Some("invalid_token"));
     };
     if !st
         .rate
         .check(&format!("act:{tok}"), 40, Duration::from_secs(10))
     {
-        return reject("rate_limited", Some(agent_id));
+        return respond(false, cur, cur + 1, false, None, Some(agent_id), st.bus.human_control(), Some("rate_limited"));
     }
     if let Some(declared) = req.agent_id {
         if declared != agent_id {
-            return reject("agent_id_token_mismatch", Some(agent_id));
+            return respond(false, cur, cur + 1, false, None, Some(agent_id), st.bus.human_control(), Some("agent_id_token_mismatch"));
         }
     }
+    // Idempotency: client seqs must strictly increase per agent.
+    if let Some(seq) = req.seq {
+        let mut g = st.seq.lock().expect("seq map");
+        let last = g.get(&agent_id).copied().unwrap_or(0);
+        if seq <= last {
+            return respond(false, cur, cur + 1, false, None, Some(agent_id), st.bus.human_control(), Some("duplicate_seq"));
+        }
+        g.insert(agent_id, seq);
+    }
 
-    st.bus.submit(Some(agent_id), req.action, req.tick.or(Some(tick)));
-    Json(ActionResponse {
-        ok: true,
-        accepted: true,
-        tick,
-        agent_id: Some(agent_id),
-        human_control: st.bus.human_control(),
-        reason: None,
-    })
+    // Submit under the sim lock: no tick can slip between the read and the
+    // enqueue, so the action provably lands on tick+1.
+    let (tick, replaced, behind) = {
+        let sim = st.sim.lock().await;
+        let tick = sim.kernel.tick();
+        let replaced = st.bus.submit(Some(agent_id), req.action);
+        let behind = req.base_tick.map(|b| tick.saturating_sub(b));
+        (tick, replaced, behind)
+    };
+    respond(true, tick, tick + 1, replaced, behind, Some(agent_id), st.bus.human_control(), None)
 }
 
 pub(crate) async fn catalog() -> impl IntoResponse {
@@ -248,11 +316,11 @@ pub(crate) async fn catalog() -> impl IntoResponse {
         })).collect::<Vec<_>>(),
         "api": {
             "register": "POST /api/register {name, purpose?} → {token, agent_id, x, y}",
-            "view": "GET /api/view?token= → {self, view, can, inbox, events}",
-            "act": "POST /api/act {token, action} → {ok, accepted, tick, reason?}",
+            "view": "GET /api/view?token=[&after_tick=N&timeout_ms=] → {self, view, can, inbox, events} (after_tick = long-poll until tick N+1 lands)",
+            "act": "POST /api/act {token, action, base_tick?, seq?} → {ok, accepted, tick, applied_tick, replaced, ticks_behind?, reason?}",
             "catalog": "GET /api/catalog → actions/verbs/recipes (cache once)",
             "message": "POST /api/message {token, targets[], text} → inbox via view",
-            "loop": "register once → view → act → view …",
+            "loop": "register once → view → act → view?after_tick=applied_tick → act → …",
         },
     }))
 }

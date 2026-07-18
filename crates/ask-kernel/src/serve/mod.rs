@@ -44,11 +44,16 @@ pub(crate) struct AppState {
     index_html: Arc<String>,
     /// Recent world events, age-capped ring (last few TICKS, not last N
     /// events — monster noise used to drown an agent's own feedback within
-    /// one tick). Written by the sim task directly.
+    /// one tick). Spectator feed ONLY (snapshot/WS); agent feedback lives
+    /// in the per-agent EventInbox, which never expires.
     recent_events: Arc<Mutex<std::collections::VecDeque<(u64, crate::events::GameEvent)>>>,
     bus: PlayerActionBus,
     reg: AgentRegistry,
     tick_ms: u64,
+    /// Tick counter broadcast — long-poll `/api/view?after_tick=` waits on this.
+    tick_rx: tokio::sync::watch::Receiver<u64>,
+    /// Idempotency: last accepted client `seq` per agent (act dedupe).
+    seq: Arc<std::sync::Mutex<std::collections::HashMap<u64, u64>>>,
 }
 
 /// Serve index.html with the static-asset cache-bust injected from the
@@ -113,6 +118,7 @@ impl Serve {
             Box::new(BusPolicy::new(bus.clone(), true)),
         )));
         let recent_events = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+        let (tick_tx, tick_rx) = tokio::sync::watch::channel(0u64);
 
         // Sim driver: a plain tokio task (no thread + blocking_lock hybrids).
         {
@@ -169,6 +175,8 @@ impl Serve {
                     {
                         let mut sim = sim.lock().await;
                         sim.step();
+                        // wake long-polling viewers (/api/view?after_tick=)
+                        let _ = tick_tx.send(sim.kernel.tick());
 
                         // Sync registry poses from world
                         {
@@ -235,6 +243,8 @@ impl Serve {
             bus,
             reg: reg.clone(),
             tick_ms,
+            tick_rx,
+            seq: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         };
         Self { state, reg }
     }

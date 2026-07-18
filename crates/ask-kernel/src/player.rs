@@ -30,8 +30,6 @@ struct BusInner {
     /// When true, agents without a pending action Idle (no MockPolicy).
     /// Operator-only world switch (/api/control with dev token).
     human_control: bool,
-    /// Last accepted submit tick hint (for client ack).
-    last_submit_tick: Option<u64>,
 }
 
 impl PlayerActionBus {
@@ -41,14 +39,15 @@ impl PlayerActionBus {
 
     /// Submit an action for `agent_id`. `None` → first agent at consume time
     /// is handled via `take_for_entity` fallback key `0` (wildcard).
+    /// Returns true when an earlier still-pending action was REPLACED
+    /// (last-write-wins within one tick — the caller should know).
     ///
     /// Note: submitting an action does NOT flip global `human_control` —
     /// that world-wide switch is operator-only (`/api/control` + dev token).
-    pub fn submit(&self, agent_id: Option<u64>, action: Action, tick_hint: Option<u64>) {
+    pub fn submit(&self, agent_id: Option<u64>, action: Action) -> bool {
         let mut g = self.inner.lock().expect("player bus");
-        g.last_submit_tick = tick_hint;
         let key = agent_id.unwrap_or(0);
-        g.pending.insert(key, action);
+        g.pending.insert(key, action).is_some()
     }
 
     pub fn human_control(&self) -> bool {
@@ -152,9 +151,19 @@ mod tests {
     fn submit_does_not_enable_human_control() {
         let bus = PlayerActionBus::new();
         assert!(!bus.human_control());
-        bus.submit(Some(1), Action::Idle, None);
+        bus.submit(Some(1), Action::Idle);
         assert!(!bus.human_control());
         assert_eq!(bus.pending_count(), 1);
         assert_eq!(bus.take_for(1), Some(Action::Idle));
+    }
+
+    /// Last-write-wins within a tick — and the caller can tell.
+    #[test]
+    fn resubmit_same_tick_reports_replaced() {
+        let bus = PlayerActionBus::new();
+        assert!(!bus.submit(Some(1), Action::Idle), "first submit: nothing to replace");
+        assert!(bus.submit(Some(1), Action::Idle), "second submit overwrote a pending action");
+        // a different agent's slot is independent
+        assert!(!bus.submit(Some(2), Action::Idle));
     }
 }

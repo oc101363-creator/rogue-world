@@ -41,7 +41,10 @@ fn main() {
     let mut watch = false;
     let mut serve_mode = false;
     let mut port: u16 = 8080;
-    let mut tick_ms: u64 = 200;
+    // 500ms/tick: the players are LLM agents with seconds of think latency —
+    // at 200ms the world ran ~15 ticks per agent decision (monsters close
+    // 15 cells, fire spreads 2 process rounds) before the agent can react.
+    let mut tick_ms: u64 = 500;
     let mut save_path: Option<String> = None;
     let mut load_path: Option<String> = None;
     let mut seed: u64 = 1;
@@ -63,7 +66,7 @@ fn main() {
             }
             "--tick-ms" => {
                 i += 1;
-                tick_ms = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(200);
+                tick_ms = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(500);
             }
             "--save" => {
                 i += 1;

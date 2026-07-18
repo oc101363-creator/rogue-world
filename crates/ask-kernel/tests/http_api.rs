@@ -189,3 +189,135 @@ async fn register_is_rate_limited() {
     let limited = reasons.iter().filter(|r| r.as_str() == "rate_limited").count();
     assert!(limited >= 1, "register spam never throttled: {reasons:?}");
 }
+
+// -------------------------------------------------- latency-oriented contract
+
+/// The P0 regression: an agent's own act feedback used to die in the
+/// 20-tick spectator ring (~1s at test tick rate). The per-agent inbox
+/// holds it until the agent views, however late that is.
+#[tokio::test]
+async fn feedback_survives_agent_think_time() {
+    let srv = start().await;
+    let reg = register(&srv, "SlowThinker").await;
+    let token = reg["token"].as_str().unwrap();
+
+    let (_, a) = http(
+        &srv,
+        "POST",
+        "/api/act",
+        Some(json!({"token": token, "action": {"type": "move", "dx": 1, "dy": 0}})),
+    )
+    .await;
+    assert_eq!(a["accepted"], json!(true));
+
+    // "think" for far longer than EVENT_TICKS_KEPT=20 ticks (20×50ms = 1s)
+    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+
+    let (_, v) = http(&srv, "GET", &format!("/api/view?token={token}"), None).await;
+    let events = v["events"].as_array().expect("events array");
+    assert!(
+        !events.is_empty(),
+        "feedback vanished while the agent was thinking"
+    );
+    assert!(
+        events.iter().all(|e| e.get("tick").is_some()),
+        "feedback entries must carry their tick stamp: {events:?}"
+    );
+    // consume-on-read: a second view must not replay them
+    let (_, v2) = http(&srv, "GET", &format!("/api/view?token={token}"), None).await;
+    let replay = v2["events"].as_array().unwrap();
+    assert!(
+        replay.len() < events.len() || events.is_empty(),
+        "consumed feedback replayed on next view"
+    );
+}
+
+/// act tells you exactly where your action lands; long-poll view waits for
+/// it. One round trip from "I acted" to "here is the result".
+#[tokio::test]
+async fn act_reports_applied_tick_and_view_long_polls() {
+    let srv = start().await;
+    let reg = register(&srv, "Precise").await;
+    let token = reg["token"].as_str().unwrap();
+
+    let (_, a) = http(
+        &srv,
+        "POST",
+        "/api/act",
+        Some(json!({"token": token, "action": {"type": "idle"}})),
+    )
+    .await;
+    assert_eq!(a["accepted"], json!(true));
+    assert_eq!(a["applied_tick"], a["tick"].as_u64().unwrap() + 1);
+    assert_eq!(a["replaced"], json!(false));
+    let applied = a["applied_tick"].as_u64().unwrap();
+
+    // long-poll returns only once the world has passed `applied`
+    let (_, v) = http(
+        &srv,
+        "GET",
+        &format!("/api/view?token={token}&after_tick={applied}"),
+        None,
+    )
+    .await;
+    assert!(
+        v["tick"].as_u64().unwrap() > applied,
+        "long-poll returned before tick {} landed: {}",
+        applied,
+        v["tick"]
+    );
+
+    // after_tick already in the past → immediate answer
+    let (_, v2) = http(
+        &srv,
+        "GET",
+        &format!("/api/view?token={token}&after_tick=0"),
+        None,
+    )
+    .await;
+    assert_eq!(v2["ok"], json!(true));
+}
+
+/// Idempotency: resending the same seq (network retry) cannot double-apply.
+#[tokio::test]
+async fn act_seq_rejects_duplicates() {
+    let srv = start().await;
+    let reg = register(&srv, "Retry").await;
+    let token = reg["token"].as_str().unwrap();
+    let act = |seq: u64| {
+        json!({"token": token, "seq": seq, "action": {"type": "idle"}})
+    };
+
+    let (_, a1) = http(&srv, "POST", "/api/act", Some(act(7))).await;
+    assert_eq!(a1["accepted"], json!(true));
+    let (_, a2) = http(&srv, "POST", "/api/act", Some(act(7))).await;
+    assert_eq!(a2["accepted"], json!(false));
+    assert_eq!(a2["reason"], json!("duplicate_seq"));
+    let (_, a3) = http(&srv, "POST", "/api/act", Some(act(3))).await;
+    assert_eq!(a3["reason"], json!("duplicate_seq"), "older seq must also reject");
+    let (_, a4) = http(&srv, "POST", "/api/act", Some(act(8))).await;
+    assert_eq!(a4["accepted"], json!(true));
+}
+
+/// base_tick is a soft staleness signal: the act still lands, but the
+/// response says how far behind the deciding view was.
+#[tokio::test]
+async fn act_base_tick_reports_ticks_behind() {
+    let srv = start().await;
+    let reg = register(&srv, "Stale").await;
+    let token = reg["token"].as_str().unwrap();
+
+    let (_, a) = http(
+        &srv,
+        "POST",
+        "/api/act",
+        Some(json!({"token": token, "base_tick": 0, "action": {"type": "idle"}})),
+    )
+    .await;
+    assert_eq!(a["accepted"], json!(true), "stale view must not reject the act");
+    assert_eq!(
+        a["ticks_behind"].as_u64().unwrap(),
+        a["tick"].as_u64().unwrap(),
+        "ticks_behind = tick - base_tick"
+    );
+}

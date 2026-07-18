@@ -67,7 +67,18 @@ static/         web client (identity-first render from feat_ids + /api/art)
    rules in process_rules.rs; glow recomputed from base + F:-line LIT emitters)
 8. level change — `PendingLevelChange` → rebuild, preserving ALL agents
 9. vision — union FOV (internal) + per-agent memory (bbox only)
-10. `advance_tick`
+10. `distribute_feedback` — route EventBuf into per-agent EventInbox with
+    push-time FOV filtering (the agent API's `events`; never expires,
+    consume-on-read — LLM think latency ≫ tick, so feedback must wait
+    for the reader; the age-capped ring is spectator-only)
+11. `advance_tick`
+
+Agent-facing timing contract (`serve/api.rs`): act submits under the sim
+lock so `applied_tick = tick+1` is exact; resubmit within a tick returns
+`replaced`; optional per-agent `seq` gives idempotency (`duplicate_seq`);
+`base_tick` gets a soft `ticks_behind` staleness signal (never rejects —
+slow agents must stay playable); `view?after_tick=N` long-polls on a
+watch channel fed each tick. Default tick is 500ms (LLM-paced).
 
 ## Key structures
 

@@ -3,6 +3,8 @@
 use bevy_ecs::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::components::{Agent, EventInbox, StableId};
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum GameEvent {
@@ -183,6 +185,41 @@ impl EventBuf {
 
     pub fn drain(&mut self) -> Vec<GameEvent> {
         std::mem::take(&mut self.events)
+    }
+}
+
+/// Route this tick's EventBuf into every agent's personal EventInbox,
+/// filtered by what THAT agent can perceive right now (push-time FOV:
+/// you learn what happened where you were looking when it happened —
+/// read-time filtering would leak or hide events as vision changes).
+///
+/// Runs once per tick (tick.rs, after vision settles). Cost is
+/// events × agents × a 41×41 FOV — trivial at server scale.
+pub fn distribute_feedback(world: &mut World) {
+    if world.resource::<EventBuf>().events.is_empty() {
+        return;
+    }
+    let tick = world.resource::<crate::world::TickCounter>().0;
+    let events = world.resource::<EventBuf>().events.clone();
+    let agents: Vec<(Entity, u64)> = {
+        let mut q = world.query_filtered::<(Entity, &StableId), With<Agent>>();
+        q.iter(world).map(|(e, s)| (e, s.0)).collect()
+    };
+    for (e, sid) in agents {
+        let vis = crate::vision::compute_view_for_agents(world, &[e]);
+        let perceivable: Vec<GameEvent> = events
+            .iter()
+            .filter(|ev| event_visible(ev, &vis, Some(sid)))
+            .cloned()
+            .collect();
+        if perceivable.is_empty() {
+            continue;
+        }
+        if let Some(mut inbox) = world.get_mut::<EventInbox>(e) {
+            for ev in perceivable {
+                inbox.push(tick, ev);
+            }
+        }
     }
 }
 

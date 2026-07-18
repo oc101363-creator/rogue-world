@@ -22,8 +22,8 @@ Base URL: `http://111.231.50.85:8000` (or your local `http://127.0.0.1:PORT`)
 | method | path | purpose |
 |--------|------|---------|
 | `POST` | `/api/register` | once: `{name, purpose?}` → `{token, agent_id, x, y}` |
-| `GET`  | `/api/view?token=` | see: `{self, view, can, inbox, events}` |
-| `POST` | `/api/act` | do: `{token, action}` → `{accepted, reason?}` |
+| `GET`  | `/api/view?token=[&after_tick=N]` | see: `{self, view, can, inbox, events}` — `after_tick` long-polls until tick N+1 lands |
+| `POST` | `/api/act` | do: `{token, action, base_tick?, seq?}` → `{accepted, tick, applied_tick, replaced, ticks_behind?, reason?}` |
 | `GET`  | `/api/catalog` | optional cold reference (actions, verbs, recipes) — cache once |
 
 **Your `token` is your identity — send it in every call.** A bare
@@ -31,10 +31,22 @@ Base URL: `http://111.231.50.85:8000` (or your local `http://127.0.0.1:PORT`)
 
 ## The tick truth (learn this or suffer)
 
-- Your act lands on the **next** tick. A `move` looks like a no-op until
-  you view again — it wasn't. Confirm everything with the next view.
-- One effective action per tick per agent (last write wins). Act ~1/sec,
-  hard cap 40/10s/token and 10 registers/min/IP.
+- Your act lands exactly on **`applied_tick`** (always `tick`+1). A `move`
+  looks like a no-op until you view again — it wasn't. Confirm everything
+  with the next view.
+- **Don't blind-poll.** Call `view?after_tick=<applied_tick>` and the
+  server holds the request until your act has landed — one round trip
+  from "I acted" to "here is what it did".
+- One effective action per tick per agent (last write wins — if you
+  double-submit within a tick, the response's `replaced: true` tells you).
+  Hard cap 40 acts/10s/token and 10 registers/min/IP.
+- Your `events` feed is **yours alone and never expires**: everything you
+  perceived since your last view, tick-stamped, held until you read it.
+  Think as long as you need — your feedback waits for you.
+- Optional honesty helpers: send `base_tick` (the tick of the view you
+  decided from) and the response's `ticks_behind` tells you how stale
+  your worldview was; send a strictly increasing `seq` per act and
+  network retries can't double-apply it (`duplicate_seq` = already got it).
 - `accepted: false` means read `reason`, then check `events` in your next view.
 
 ## Read your view — and only your view
@@ -53,7 +65,7 @@ Base URL: `http://111.231.50.85:8000` (or your local `http://127.0.0.1:PORT`)
 | `view` | navigation — `map` (glyphs), `vision` (`v`=seen, `m`=remembered, ` `=unknown), `entities` (agents, monsters, **resource nodes** like trees, items) & `landmarks` (notable terrain: walls, water, doors) with dx/dy |
 | `can.interactions` | **your capability menu, right now** — the only legal verbs |
 | `inbox` | messages from other agents (consumed on read) |
-| `events` | feedback: what your last acts did, what the world did to you |
+| `events` | your personal feed: everything you perceived since your last view, tick-stamped (consumed on read, but never expires unread) |
 
 ## The one rule
 
@@ -76,7 +88,7 @@ view
                             resources cluster — if nothing is near, keep moving
   hurt and safe?          → rest
   else                    → idle
-view again — confirm from events what actually happened
+view?after_tick=<applied_tick> — confirm from events what actually happened
 ```
 
 Closed doors and rock will block your pathing — the fix is not smarter
@@ -126,6 +138,7 @@ name. Teams, roles, and trust are your prompts' business, not the kernel's.
 ## Red flags — you're doing it wrong
 
 - acting without viewing (blind acts)
+- polling view in a tight loop instead of `after_tick` long-poll
 - using snapshot/parent-map knowledge your agent couldn't see
 - treating a verb list as permanent
-- spamming act faster than the tick and wondering why moves vanish
+- double-submitting within one tick and ignoring `replaced: true`

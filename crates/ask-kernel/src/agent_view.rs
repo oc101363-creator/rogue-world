@@ -10,7 +10,6 @@ use crate::components::{
     AgentMailbox, AgentProfile, Health, Inventory, Position, StableId,
 };
 use crate::describe::entity_brief;
-use crate::events::GameEvent;
 use crate::f_info;
 use crate::grid::Grid;
 use crate::systems::interact;
@@ -19,11 +18,7 @@ use crate::world::TickCounter;
 
 /// Canonical GET /api/view payload for one agent.
 /// Returns None if the entity lacks the agent essentials.
-pub fn build_agent_view(
-    world: &mut World,
-    agent: Entity,
-    recent_events: &[GameEvent],
-) -> Option<serde_json::Value> {
+pub fn build_agent_view(world: &mut World, agent: Entity) -> Option<serde_json::Value> {
     let pos = *world.get::<Position>(agent)?;
     let sid = world.get::<StableId>(agent)?.0;
     let tick = world.resource::<TickCounter>().0;
@@ -183,11 +178,20 @@ pub fn build_agent_view(
         }
     }
 
-    // --- events: only what THIS agent may learn (FOV + self) ---
-    let filtered_events: Vec<GameEvent> = recent_events
-        .iter()
-        .filter(|ev| crate::events::event_visible(ev, &vis, Some(sid)))
-        .cloned()
+    // --- events: drain THIS agent's feedback inbox (consume-on-read) ---
+    // Push-time FOV filtering already happened in distribute_feedback, so
+    // everything here is learnable by this agent — and it survives however
+    // long the agent took to come back. Each entry carries its tick stamp.
+    let filtered_events: Vec<serde_json::Value> = world
+        .get_mut::<crate::components::EventInbox>(agent)
+        .map(|mut inbox| inbox.drain())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(t, ev)| {
+            let mut j = serde_json::to_value(&ev).unwrap_or_default();
+            j["tick"] = t.into();
+            j
+        })
         .collect();
 
     // --- inbox (consumed on read) ---

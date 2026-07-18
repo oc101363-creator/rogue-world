@@ -406,6 +406,34 @@ impl AgentMailbox {
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct MessageCounter(pub u64);
 
+/// Per-agent feedback feed — the events THIS agent perceived, held until its
+/// next view (consume-on-read), stamped with the tick they happened on.
+///
+/// Unlike the spectator event ring (age-capped, shared), this never expires:
+/// an agent whose think time spans many ticks (LLM latency ≫ tick) still
+/// finds its own act feedback whenever it comes back. Filled once per tick
+/// by `events::distribute_feedback` with push-time FOV filtering.
+#[derive(Component, Clone, Debug, Default)]
+pub struct EventInbox {
+    pub events: std::collections::VecDeque<(u64, crate::events::GameEvent)>,
+}
+
+impl EventInbox {
+    /// Generous bound for an agent that never views; oldest drop first.
+    pub const CAP: usize = 200;
+
+    pub fn push(&mut self, tick: u64, ev: crate::events::GameEvent) {
+        if self.events.len() >= Self::CAP {
+            self.events.pop_front();
+        }
+        self.events.push_back((tick, ev));
+    }
+
+    pub fn drain(&mut self) -> Vec<(u64, crate::events::GameEvent)> {
+        self.events.drain(..).collect()
+    }
+}
+
 #[cfg(test)]
 mod mailbox_tests {
     use super::*;

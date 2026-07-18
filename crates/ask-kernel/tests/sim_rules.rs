@@ -450,7 +450,6 @@ fn player_bus_overrides_mock_and_moves() {
             dx: step.0,
             dy: step.1,
         },
-        Some(0),
     );
     // submitting must not flip the world-wide human_control switch
     assert!(!bus.human_control());

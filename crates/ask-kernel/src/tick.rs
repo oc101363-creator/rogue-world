@@ -72,6 +72,10 @@ impl Sim {
         vision::update_view(&mut self.kernel.world);
         vision::update_agent_memories(&mut self.kernel.world);
 
+        // feedback: route this tick's events into per-agent inboxes
+        // (push-time FOV — survives however long the agent thinks)
+        crate::events::distribute_feedback(&mut self.kernel.world);
+
         advance_tick_system(&mut self.kernel.world);
     }
 

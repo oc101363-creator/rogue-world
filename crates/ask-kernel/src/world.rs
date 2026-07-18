@@ -214,6 +214,7 @@ impl KernelWorld {
         let mut e = self.world.spawn((
             Agent,
             AgentMailbox::new(),
+            crate::components::EventInbox::default(),
             Position { x: pos.0, y: pos.1 },
             Glyph(glyph),
             inv,

@@ -108,10 +108,6 @@ async fn handle_action(st: &AppState, v: &serde_json::Value) {
             return;
         }
     }
-    let tick = {
-        let sim = st.sim.lock().await;
-        sim.kernel.tick()
-    };
     let Some(av) = v.get("action") else { return };
     let Ok(action) = serde_json::from_value::<Action>(av.clone()) else {
         return;
@@ -119,7 +115,9 @@ async fn handle_action(st: &AppState, v: &serde_json::Value) {
     if super::api::validate_action(&action).is_err() {
         return;
     }
-    st.bus.submit(Some(agent_id), action, Some(tick));
+    // Submit under the sim lock (same exactness as POST /api/act).
+    let _sim = st.sim.lock().await;
+    st.bus.submit(Some(agent_id), action);
 }
 
 fn handle_control(st: &AppState, v: &serde_json::Value) {
