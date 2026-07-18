@@ -132,25 +132,26 @@ async fn ws_action_requires_token() {
         .await
         .unwrap();
     }
-    // assert across several consecutive frames (no stale single frame)
+    // action WITHOUT token → must be ignored. Assert NO self-move event for
+    // our agent across several frames (position-based checks are flaky: the
+    // world fights back — monsters/traps can relocate an idle agent).
     for _ in 0..3 {
         let snap = recv_snapshot(&mut ws).await;
-        let me = snap["entities"]
+        let self_moved = snap["recent_events"]
             .as_array()
-            .unwrap()
-            .iter()
-            .find(|e| e["id"].as_u64() == reg["agent_id"].as_u64())
-            .cloned()
-            .unwrap();
-        assert_eq!(
-            (me["x"].as_i64().unwrap() as i32, me["y"].as_i64().unwrap() as i32),
-            (x0, y0),
-            "tokenless ws action moved the agent"
-        );
+            .map(|evs| {
+                evs.iter().any(|e| {
+                    e["type"].as_str() == Some("moved")
+                        && e["entity"].as_u64() == reg["agent_id"].as_u64()
+                })
+            })
+            .unwrap_or(false);
+        assert!(!self_moved, "tokenless ws action produced a move event");
     }
 
-    // action WITH token → applied. Try the four directions until one is
-    // not blocked by terrain (spawn cells can be walled on some sides).
+    // action WITH token → applied. Try the four directions until one is not
+    // blocked by terrain (spawn cells can be walled on some sides). Watch
+    // for the `moved` EVENT — position diffs can lie (death respawn).
     let dirs = [(1, 0), (-1, 0), (0, 1), (0, -1)];
     let mut moved = false;
     for i in 0..16 {
@@ -163,18 +164,16 @@ async fn ws_action_requires_token() {
         .await
         .unwrap();
         let snap = recv_snapshot(&mut ws).await;
-        let me = snap["entities"]
+        let self_moved = snap["recent_events"]
             .as_array()
-            .unwrap()
-            .iter()
-            .find(|e| e["id"].as_u64() == reg["agent_id"].as_u64())
-            .cloned()
-            .unwrap();
-        let pos = (
-            me["x"].as_i64().unwrap() as i32,
-            me["y"].as_i64().unwrap() as i32,
-        );
-        if pos != (x0, y0) {
+            .map(|evs| {
+                evs.iter().any(|e| {
+                    e["type"].as_str() == Some("moved")
+                        && e["entity"].as_u64() == reg["agent_id"].as_u64()
+                })
+            })
+            .unwrap_or(false);
+        if self_moved {
             moved = true;
             break;
         }
