@@ -153,10 +153,15 @@ export function syncViewSize() {
   return S.display;
 }
 
+/// Soft clamp: the camera may overscroll up to half a viewport past the
+/// map edge — dragging never "sticks" at the boundary; out-of-map cells
+/// just render as void (drawSnap already handles OOB).
 export function clampCamera() {
   if (S.mapW <= 0 || S.mapH <= 0) return;
-  S.cam.tx = Math.max(0, Math.min(S.mapW - S.viewCols, Math.floor(S.cam.tx)));
-  S.cam.ty = Math.max(0, Math.min(S.mapH - S.viewRows, Math.floor(S.cam.ty)));
+  const padX = Math.ceil(S.viewCols / 2);
+  const padY = Math.ceil(S.viewRows / 2);
+  S.cam.tx = Math.max(-padX, Math.min(S.mapW - S.viewCols + padX, Math.floor(S.cam.tx)));
+  S.cam.ty = Math.max(-padY, Math.min(S.mapH - S.viewRows + padY, Math.floor(S.cam.ty)));
   emit("camera-changed");
 }
 

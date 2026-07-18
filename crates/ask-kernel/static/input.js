@@ -197,19 +197,38 @@ export function installInputHandlers() {
   let mouseDownAt = null;
   let lastClickAt = null; // for double-click mass-select
 
-  // Mouse model (classic RTS):
+  // Mouse/trackpad model (classic RTS + trackpad-native pan):
   //   LMB drag  → box-select agents (no modifier)
   //   LMB click → select agent under cursor / clear if empty
   //   Shift/Ctrl+LMB → add to selection (Ctrl toggles on click)
   //   MMB / RMB drag → pan camera
+  //   wheel (two-finger scroll) → pan camera
+  //   ctrl/pinch wheel → zoom (trackpad pinch reports as ctrl+wheel)
   //   RMB short click → inspect cell/entity
   //   Double-click agent → select all currently visible agents
+  let wheelPanX = 0;
+  let wheelPanY = 0;
   viewport.addEventListener(
     "wheel",
     (e) => {
       e.preventDefault();
       const rect = viewport.getBoundingClientRect();
-      zoomBy(e.deltaY < 0 ? 1 : -1, e.clientX - rect.left, e.clientY - rect.top);
+      if (e.ctrlKey || e.metaKey) {
+        // trackpad pinch gesture (delivered as ctrl+wheel) → zoom
+        zoomBy(e.deltaY < 0 ? 1 : -1, e.clientX - rect.left, e.clientY - rect.top);
+        return;
+      }
+      // two-finger scroll / mouse wheel → smooth pan (cell-quantized)
+      S.cam.follow = false;
+      wheelPanX += e.deltaX;
+      wheelPanY += e.deltaY;
+      const cs = cellSize();
+      while (wheelPanX >= cs) { S.cam.tx += 1; wheelPanX -= cs; }
+      while (wheelPanX <= -cs) { S.cam.tx -= 1; wheelPanX += cs; }
+      while (wheelPanY >= cs) { S.cam.ty += 1; wheelPanY -= cs; }
+      while (wheelPanY <= -cs) { S.cam.ty -= 1; wheelPanY += cs; }
+      clampCamera();
+      if (S.lastSnap) drawSnap(S.lastSnap);
     },
     { passive: false },
   );

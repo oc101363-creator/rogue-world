@@ -3,7 +3,7 @@
 import { on } from "../bus.js";
 
 const HELP_TEXT =
-  "KEYS: arrows move · g interact · LMB-drag box select · double-click all visible · MMB/RMB pan · right-click inspect · Ctrl/Shift add · SPACE follow · m mock";
+  "KEYS: arrows move · g interact · LMB-drag box select · double-click all visible · scroll pan · pinch/ctrl-scroll zoom · MMB/RMB pan · right-click inspect · Ctrl/Shift add · SPACE follow · m mock";
 
 export function mountLogview(logRoot, helpRoot) {
   if (helpRoot) helpRoot.textContent = HELP_TEXT;
