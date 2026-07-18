@@ -1,7 +1,7 @@
 /* HUD panel: connection status, mode, info line, cam readout, theme
  * select, FOLLOW/MOCK, dock collapse toggles. Owns #hud. */
 
-import { S, saveTracked } from "../state.js";
+import { S } from "../state.js";
 import { on, emit, log } from "../bus.js";
 import { THEMES, getTheme } from "../themes.js";
 
@@ -74,6 +74,7 @@ export function mountHud(root) {
     d[side] = document.body.classList.contains(cls);
     localStorage.setItem(DOCK_KEY, JSON.stringify(d));
     emit("camera-changed"); // viewport resized → reclamp
+    if (S.lastSnap) emit("snapshot", S.lastSnap); // force redraw
   };
   root.querySelector("#dock-toggle-l").addEventListener("click", () => toggle("l"));
   root.querySelector("#dock-toggle-r").addEventListener("click", () => toggle("r"));

@@ -1,7 +1,7 @@
 /* Inspect panel: docked entity/cell details in the right-dock tab.
  * Replaces the floating popup — details stay open while you watch. */
 
-import { on } from "../bus.js";
+import { on, emit } from "../bus.js";
 
 function renderKV(obj, skip = []) {
   const rows = [];
@@ -47,6 +47,6 @@ export function mountInspect(root) {
         renderKV(data, ["x", "y", "glyph", "name", "feat_id"]);
     }
     // switch the right dock to this tab so the details are visible
-    document.dispatchEvent(new CustomEvent("ask-activate-inspect"));
+    emit("activate-tab", "inspect");
   });
 }

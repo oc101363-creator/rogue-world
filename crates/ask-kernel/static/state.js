@@ -1,6 +1,8 @@
-/* ASK viewer — shared state (single state bag) + storage.
- * No imports: every other module may read/write S.* freely.
- * Element refs live in the modules that own them (getElementById). */
+/* ASK viewer — shared state: the single state bag S, localStorage
+ * keys + load/save helpers, and pure selection/name mutators that
+ * emit on the bus. Zero DOM refs — every other module may
+ * read/write S.* freely; element refs live in the modules that own
+ * them (getElementById). */
 
 import { getTheme } from "./themes.js";
 import { emit } from "./bus.js";

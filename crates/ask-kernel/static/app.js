@@ -29,7 +29,6 @@ const activate = (name) => {
 tabs.addEventListener("click", (e) => {
   if (e.target.dataset.tab) activate(e.target.dataset.tab);
 });
-document.addEventListener("ask-activate-inspect", () => activate("inspect"));
 on("activate-tab", activate);
 
 installInputHandlers();

@@ -5,7 +5,7 @@
 import {
   S, inspectToken, agentName,
   loadPresets, savePresets, loadSquads, saveSquads,
-  setSelectedAgents,
+  setSelectedAgents, toggleSelectAgent,
 } from "../state.js";
 import { on, log } from "../bus.js";
 import { visibleAgentIds } from "../mapview.js";
@@ -66,8 +66,7 @@ export function mountDispatch(root) {
       rm.type = "button"; rm.className = "rm"; rm.textContent = "[x]";
       rm.addEventListener("click", (e) => {
         e.stopPropagation();
-        S.selectedAgentIds.delete(id);
-        renderChips(); // local re-render; setSelectedAgents not needed
+        toggleSelectAgent(id); // emits selection-changed → renderChips
       });
       chip.appendChild(rm);
       chips.appendChild(chip);

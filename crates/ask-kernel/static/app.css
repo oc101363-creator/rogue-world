@@ -57,8 +57,6 @@ body {
 #mode.mode-mock { color: var(--r80-accent, #ffcc00); }
 #mode.mode-human, #mode.mode-player { color: var(--online, #00ff00); }
 #info, #cam { opacity: 0.8; }
-#theme-bar { display: flex; align-items: center; gap: var(--space-xs, 4px); }
-#theme-bar label { opacity: 0.7; }
 
 /* --- main grid --- */
 #main {
