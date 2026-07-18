@@ -5,7 +5,8 @@
 const elStub = () => ({
   style: { setProperty() {} },
   classList: { add() {}, remove() {}, toggle() {} },
-  appendChild() {}, addEventListener() {},
+  appendChild() {}, addEventListener() {}, insertBefore() {}, firstChild: null,
+  removeChild() {}, querySelectorAll: () => [],
   set innerHTML(v) {}, get innerHTML() { return ""; },
   textContent: "", value: "", getContext: () => null,
 });
@@ -17,6 +18,11 @@ globalThis.document = {
 };
 globalThis.window = { addEventListener() {} };
 globalThis.requestAnimationFrame = () => {};
+// No network in the link check: app.js boots connect() at import time.
+globalThis.WebSocket = class {
+  close() {} send() {}
+};
+globalThis.fetch = () => new Promise(() => {});
 
 const base = new URL("../crates/ask-kernel/static/", import.meta.url);
 const modules = process.argv.slice(2);

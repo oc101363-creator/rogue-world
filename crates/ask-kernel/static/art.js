@@ -2,7 +2,7 @@
 
 let artCatalog = null;
 
-async function ensureArtCatalog(versionHint) {
+export async function ensureArtCatalog(versionHint) {
   if (
     artCatalog &&
     (versionHint == null || artCatalog.catalog_version === versionHint)
@@ -16,7 +16,7 @@ async function ensureArtCatalog(versionHint) {
   return artCatalog;
 }
 
-function decodeFeatIds(payload) {
+export function decodeFeatIds(payload) {
   if (!payload || payload.enc !== "u16le_b64" || !payload.data) {
     return null;
   }
@@ -35,7 +35,7 @@ function featKey(id) {
   return String(id);
 }
 
-function lookForFeat(id) {
+export function lookForFeat(id) {
   const c = artCatalog;
   if (!c || !c.feats) {
     return { glyph: "?", material: "void", layer: 0, name: "?" };
@@ -47,7 +47,7 @@ function lookForFeat(id) {
   return f;
 }
 
-function lookForEntity(ent) {
+export function lookForEntity(ent) {
   const c = artCatalog;
   if (!c) {
     return { glyph: ent.glyph || "?", material: "ui_info" };
@@ -65,7 +65,7 @@ function lookForEntity(ent) {
   return { glyph: ent.glyph || "?", material: "ui_info" };
 }
 
-function materialColor(material, theme) {
+export function materialColor(material, theme) {
   if (theme && theme.materials && theme.materials[material]) {
     return theme.materials[material];
   }

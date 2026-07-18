@@ -2,6 +2,8 @@
  * Imports state only; calls into net lazily where the tracker UI needs it. */
 
 import { el, S, ZOOM_STEPS, THEME_KEY, saveTracked, loadPresets, agentName } from "./state.js";
+import { THEMES, getTheme } from "./themes.js";
+import { decodeFeatIds, lookForFeat, lookForEntity, materialColor } from "./art.js";
 import { sendSubscribe } from "./net.js";
 
 // ---------------------------------------------------------------- selectors

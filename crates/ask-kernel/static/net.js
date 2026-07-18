@@ -2,6 +2,7 @@
  * tracking, messages, inspect fetches. Imports state + render. */
 
 import { el, S, WS_URL, TRACK_COLORS, inspectToken, saveTracked } from "./state.js";
+import { ensureArtCatalog } from "./art.js";
 import {
   pushLog,
   formatEvents,
@@ -119,7 +120,7 @@ export function applySnapshot(snap) {
   if (!snap || snap.type !== "snapshot") return;
   const prevTick = S.lastSnap ? S.lastSnap.tick : -1;
   S.lastSnap = snap;
-  if (snap.catalog_version != null && typeof ensureArtCatalog === "function") {
+  if (snap.catalog_version != null) {
     ensureArtCatalog(snap.catalog_version).catch(function () {});
   }
 
@@ -182,11 +183,9 @@ export function applySnapshot(snap) {
 export function connect() {
   el.status.textContent = "connecting";
   el.status.className = "offline";
-  if (typeof ensureArtCatalog === "function") {
-    ensureArtCatalog().catch(function () {
-      pushLog("ART: catalog load failed");
-    });
-  }
+  ensureArtCatalog().catch(function () {
+    pushLog("ART: catalog load failed");
+  });
   S.ws = new WebSocket(WS_URL);
   S.ws.onopen = () => {
     el.status.textContent = "live";

@@ -1,6 +1,8 @@
 /* ASK viewer — shared state (single state bag) + element refs + storage.
  * No imports: every other module may read/write S.* freely. */
 
+import { getTheme } from "./themes.js";
+
 export const WS_URL =
   (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
 

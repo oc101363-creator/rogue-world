@@ -36,7 +36,7 @@ const FS_HDG_BASE_MATERIALS = {
   magic: "#c44cff",
 };
 
-const THEMES = [
+export const THEMES = [
   {
     // Classic Rogue-80 CRT: neon green / gold / blood red / cyan on pure black
     id: "rogue-80",
@@ -341,7 +341,7 @@ const THEMES = [
   },
 ];
 
-function getTheme(id) {
+export function getTheme(id) {
   return (
     THEMES.find(function (t) {
       return t.id === id;
