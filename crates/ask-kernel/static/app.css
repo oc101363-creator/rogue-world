@@ -132,6 +132,8 @@ textarea.term-input { resize: vertical; min-height: 60px; width: 100%; }
 .track-item .rm { float: right; background: none; border: none; color: inherit; cursor: pointer; font: inherit; }
 .track-item .rm:hover { color: var(--offline, #ff5555); }
 .track-item .meta, .track-item .tok { opacity: 0.6; font-size: 0.85em; }
+.track-item.invalid { border-color: var(--offline, #ff5555); opacity: 0.75; }
+.track-item .invalid-note { color: var(--offline, #ff5555); opacity: 1; }
 
 /* selector chips + delivery */
 #sel-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }

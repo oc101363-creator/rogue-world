@@ -40,11 +40,16 @@ export function mountTracker(root) {
     list.innerHTML = "";
     S.tracked.forEach((t, i) => {
       const div = document.createElement("div");
-      div.className = "track-item" + (S.followToken === t.token ? " active" : "");
+      div.className =
+        "track-item" +
+        (S.followToken === t.token ? " active" : "") +
+        (t.invalid ? " invalid" : "");
       div.innerHTML =
         `<button type="button" class="rm" title="remove">[x]</button>` +
         `<div class="name" style="color:${t.color}">@ ${t.name || "agent"}</div>` +
-        `<div class="meta">id=${t.agent_id ?? "?"}  @(${t.x ?? "?"},${t.y ?? "?"})</div>` +
+        (t.invalid
+          ? `<div class="meta invalid-note">✗ unknown token (server restarted?) — remove it</div>`
+          : `<div class="meta">id=${t.agent_id ?? "?"}  @(${t.x ?? "?"},${t.y ?? "?"})</div>`) +
         `<div class="tok">${t.token.slice(0, 18)}…</div>`;
       div.addEventListener("click", (e) => {
         if (e.target.classList.contains("rm")) return;

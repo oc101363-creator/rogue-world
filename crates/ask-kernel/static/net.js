@@ -23,7 +23,13 @@ export async function refreshTracked() {
         const r = await fetch("/api/track?token=" + encodeURIComponent(t.token));
         if (!r.ok) return;
         const d = await r.json();
-        if (!d.ok) return;
+        if (!d.ok) {
+          // surface dead tokens (e.g. dev token from a previous server run)
+          // instead of silently tracking a ghost that sees only darkness
+          t.invalid = true;
+          return;
+        }
+        t.invalid = false;
         t.agent_id = d.agent_id;
         t.name = d.name;
         t.purpose = d.purpose;
