@@ -6,12 +6,7 @@ import { S, WS_URL, TRACK_COLORS, inspectToken, saveTracked } from "./state.js";
 import { ensureArtCatalog } from "./art.js";
 import { focusAgent } from "./mapview.js";
 import { on, emit } from "./bus.js";
-import {
-  pushLog,
-  renderEntityInspect,
-  renderCellInspect,
-  renderDelivery,
-} from "./render.js";
+import { pushLog } from "./render.js";
 
 // tracker re-renders on this event; net resubscribes with the new focus
 on("tracked-changed", () => sendSubscribe());
@@ -251,101 +246,26 @@ export function setHumanControl(flag) {
   }
 }
 
-export async function sendPromptToSelected(text) {
-  const token = inspectToken();
-  if (!token) {
-    pushLog("SEND: track a token first");
-    return;
-  }
-  if (!S.selectedAgentIds.size) {
-    pushLog("SEND: select agents first");
-    return;
-  }
-  if (!text.trim()) {
-    pushLog("SEND: empty prompt");
-    return;
-  }
-  if (text.length > 500) {
-    pushLog("SEND: prompt too long (>500 UTF-16 code units)");
-    return;
-  }
-  const targets = Array.from(S.selectedAgentIds);
-  try {
-    const r = await fetch("/api/message", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, targets, text }),
-    });
-    const d = await r.json();
-    if (!d.ok) {
-      pushLog("SEND: " + (d.reason || "failed"));
-      return;
-    }
-    // per-target receipts → delivery rows, then poll for read stamps
-    S.delivery = (d.results || []).map((x) => ({
-      agent: x.id,
-      msg_id: x.msg_id,
-      ok: !!x.ok,
-      reason: x.reason,
-      read_tick: null,
-    }));
-    renderDelivery();
-    pushLog(`SEND → ${d.sent} agents, ${d.rejected} rejected`);
-    pollMessageStatus();
-  } catch (_) {
-    pushLog("SEND: network");
-  }
+/** Raw message API — parsed JSON in, parsed JSON out. UI lives in dispatch. */
+export async function apiSendMessage(token, targets, text) {
+  const r = await fetch("/api/message", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, targets, text }),
+  });
+  return r.json();
 }
 
-/** Short-window poll: fill in read receipts, stop when all read or ~30s. */
-async function pollMessageStatus() {
-  const pending = () => S.delivery.filter((d) => d.ok && d.read_tick == null);
-  for (let i = 0; i < 15 && pending().length; i++) {
-    await new Promise((r) => setTimeout(r, 2000));
-    const token = inspectToken();
-    if (!token) return;
-    const ids = pending().map((d) => d.msg_id).join(",");
-    try {
-      const r = await fetch(
-        `/api/message/status?token=${encodeURIComponent(token)}&ids=${ids}`,
-      );
-      const d = await r.json();
-      if (!d.ok) return;
-      for (const s of d.statuses || []) {
-        const row = S.delivery.find((x) => x.msg_id === s.id);
-        if (row) row.read_tick = s.read_tick;
-      }
-      renderDelivery();
-    } catch (_) {
-      return;
-    }
-  }
+export async function apiMessageStatus(token, ids) {
+  const r = await fetch(
+    `/api/message/status?token=${encodeURIComponent(token)}&ids=${ids.join(",")}`,
+  );
+  return r.json();
 }
 
-/** Operator inbox (dev token): messages agents sent to target 0. */
-export async function fetchOperatorInbox() {
-  const token = inspectToken();
-  if (!token) {
-    pushLog("INBOX: track a token first");
-    return;
-  }
-  try {
-    const r = await fetch("/api/message/inbox?token=" + encodeURIComponent(token));
-    const d = await r.json();
-    if (!d.ok) {
-      pushLog("INBOX: " + (d.reason || "failed"));
-      return;
-    }
-    if (!d.messages.length) {
-      pushLog("INBOX: empty");
-      return;
-    }
-    for (const m of d.messages) {
-      pushLog(`◀ ${m.from} (tick ${m.sent_tick}): ${m.text}`);
-    }
-  } catch (_) {
-    pushLog("INBOX: network");
-  }
+export async function apiOperatorInbox(token) {
+  const r = await fetch("/api/message/inbox?token=" + encodeURIComponent(token));
+  return r.json();
 }
 
 // ---------------------------------------------------------------- inspect fetches
@@ -363,7 +283,7 @@ export async function fetchEntityInspect(id) {
       pushLog("INSPECT: " + (d.reason || "failed"));
       return;
     }
-    renderEntityInspect(d.entity);
+    emit("inspect-show", { kind: "entity", data: d.entity });
   } catch (_) {
     pushLog("INSPECT: network");
   }
@@ -384,8 +304,11 @@ export async function fetchCellInspect(wx, wy) {
       pushLog("INSPECT: " + (d.reason || "failed"));
       return;
     }
-    renderCellInspect(d.cell);
+    emit("inspect-show", { kind: "cell", data: d.cell });
   } catch (_) {
     pushLog("INSPECT: network");
   }
 }
+
+on("request-inspect-entity", (id) => fetchEntityInspect(id));
+on("request-inspect-cell", ({ x, y }) => fetchCellInspect(x, y));

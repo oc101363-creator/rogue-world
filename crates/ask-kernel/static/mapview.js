@@ -20,6 +20,11 @@ export function mountMapview(root) {
     }
     drawSnap(snap);
   });
+
+  // selection ring follows the shared selection set
+  on("selection-changed", () => {
+    if (S.lastSnap) drawSnap(S.lastSnap);
+  });
 }
 
 // ---------------------------------------------------------------- selectors
@@ -70,10 +75,6 @@ export function visibleAgentIds() {
       return ch === "v";
     })
     .map((en) => en.id);
-}
-
-export function updateSelectionHighlight() {
-  if (S.lastSnap) drawSnap(S.lastSnap);
 }
 
 // ---------------------------------------------------------------- camera

@@ -1,7 +1,13 @@
 /* ASK viewer — input: keyboard commands, RTS box-select, camera pan, inspect
  * clicks. All DOM event wiring installed via installInputHandlers(). */
 
-import { el, S } from "./state.js";
+import {
+  el,
+  S,
+  setSelectedAgents,
+  addSelectedAgents,
+  toggleSelectAgent,
+} from "./state.js";
 import {
   drawSnap,
   syncViewSize,
@@ -14,9 +20,8 @@ import {
   visibleAgentIds,
   cellSize,
   zoomBy,
-  updateSelectionHighlight,
 } from "./mapview.js";
-import { pushLog, updateSelectionPanel, hideInspectPopup } from "./render.js";
+import { pushLog, hideInspectPopup } from "./render.js";
 import {
   sendAction,
   setHumanControl,
@@ -26,28 +31,6 @@ import {
 } from "./net.js";
 
 // ---------------------------------------------------------------- selection
-
-export function setSelectedAgents(ids) {
-  S.selectedAgentIds = new Set(ids);
-  updateSelectionPanel();
-  updateSelectionHighlight();
-}
-
-export function addSelectedAgents(ids) {
-  for (const id of ids) S.selectedAgentIds.add(id);
-  updateSelectionPanel();
-  updateSelectionHighlight();
-}
-
-export function toggleSelectAgent(id) {
-  if (S.selectedAgentIds.has(id)) {
-    S.selectedAgentIds.delete(id);
-  } else {
-    S.selectedAgentIds.add(id);
-  }
-  updateSelectionPanel();
-  updateSelectionHighlight();
-}
 
 export function selectAllVisibleAgents() {
   const ids = visibleAgentIds();

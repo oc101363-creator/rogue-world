@@ -2,6 +2,7 @@
  * No imports: every other module may read/write S.* freely. */
 
 import { getTheme } from "./themes.js";
+import { emit } from "./bus.js";
 
 export const WS_URL =
   (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
@@ -15,23 +16,6 @@ export const el = {
   inspectBody: document.getElementById("inspect-body"),
   inspectClose: document.getElementById("inspect-close"),
   selectBox: document.getElementById("select-box"),
-  selCount: document.getElementById("sel-count"),
-  selAllVis: document.getElementById("sel-all-vis"),
-  selClear: document.getElementById("sel-clear"),
-  selPreset: document.getElementById("sel-preset"),
-  selPresetDel: document.getElementById("sel-preset-del"),
-  selPresetSave: document.getElementById("sel-preset-save"),
-  selPresetName: document.getElementById("sel-preset-name"),
-  selText: document.getElementById("sel-text"),
-  selSend: document.getElementById("sel-send"),
-  selChips: document.getElementById("sel-chips"),
-  selDelivery: document.getElementById("sel-delivery"),
-  squadList: document.getElementById("squad-list"),
-  squadLoad: document.getElementById("squad-load"),
-  squadSave: document.getElementById("squad-save"),
-  squadDel: document.getElementById("squad-del"),
-  squadName: document.getElementById("squad-name"),
-  opInbox: document.getElementById("op-inbox"),
 };
 
 export const ZOOM_STEPS = [6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 40];
@@ -137,6 +121,21 @@ export const S = {
   cam: { tx: 0, ty: 0, zi: 4, follow: true },
 };
 S.followToken = S.tracked.length ? S.tracked[0].token : null;
+
+/** Selection is shared S state; every mutation emits for chips+highlight. */
+export function setSelectedAgents(ids) {
+  S.selectedAgentIds = new Set(ids);
+  emit("selection-changed");
+}
+export function addSelectedAgents(ids) {
+  for (const id of ids) S.selectedAgentIds.add(id);
+  emit("selection-changed");
+}
+export function toggleSelectAgent(id) {
+  if (S.selectedAgentIds.has(id)) S.selectedAgentIds.delete(id);
+  else S.selectedAgentIds.add(id);
+  emit("selection-changed");
+}
 
 /** Token used for inspect/message calls: focus, else first tracked. */
 export function inspectToken() {
