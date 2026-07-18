@@ -55,7 +55,7 @@ body {
 #status.online { color: var(--online, #00ff00); }
 #status.offline { color: var(--offline, #ff5555); }
 #mode.mode-mock { color: var(--r80-accent, #ffcc00); }
-#mode.mode-human { color: var(--online, #00ff00); }
+#mode.mode-human, #mode.mode-player { color: var(--online, #00ff00); }
 #info, #cam { opacity: 0.8; }
 #theme-bar { display: flex; align-items: center; gap: var(--space-xs, 4px); }
 #theme-bar label { opacity: 0.7; }
@@ -77,8 +77,10 @@ body.l-collapsed #dock-track,
 body.r-collapsed #dock-command { display: none; }
 
 /* --- viewport --- */
-#viewport { position: relative; overflow: hidden; min-width: 0; }
+#viewport { position: relative; overflow: hidden; min-width: 0; cursor: grab; user-select: none; }
+#viewport.dragging { cursor: grabbing; }
 #map { position: absolute; inset: 0; }
+#map canvas { image-rendering: pixelated; }
 #select-box {
   position: absolute; display: none; z-index: 3;
   border: 1px dashed var(--r80-accent, #ffcc00);
