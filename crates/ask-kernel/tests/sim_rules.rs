@@ -1854,8 +1854,6 @@ fn deep_spring_runs_dry_and_extract_is_bounded() {
 
 #[test]
 fn terrain_changed_from_is_target_prior_feat() {
-    use ask_kernel::components::VisionMemory;
-
     let mut cfg = Config::default();
     cfg.width = 33;
     cfg.height = 22;
@@ -1885,7 +1883,37 @@ fn terrain_changed_from_is_target_prior_feat() {
         }
     }
     assert!(ev_ok, "never saw the spread event");
-    let _ = VisionMemory::new(1, 1);
+
+    // water flow (NeighborAndSelf arm): the minted shallow cell reports its
+    // own prior feat, not the deep source's
+    let mut cfg2 = Config::default();
+    cfg2.width = 33;
+    cfg2.height = 22;
+    cfg2.seed = 167;
+    let mut kw2 = KernelWorld::new(&cfg2);
+    stage_fill(&mut kw2, id::GRANITE);
+    {
+        let mut grid = kw2.world.resource_mut::<Grid>();
+        grid.set(5, 5, id::DEEP_WATER);
+        grid.set(6, 5, id::FLOOR);
+    }
+    let mut saw_water = false;
+    for _ in 0..(8 * 60) {
+        kw2.world.resource_mut::<EventBuf>().drain();
+        run_process_ticks(&mut kw2, 1);
+        for e in kw2.world.resource_mut::<EventBuf>().drain() {
+            if let GameEvent::TerrainChanged { at, from, to, .. } = e {
+                if at == (6, 5) && to == id::SHALLOW_WATER {
+                    assert_eq!(from, id::FLOOR, "from must be the minted cell's prior feat");
+                    saw_water = true;
+                }
+            }
+        }
+        if saw_water {
+            break;
+        }
+    }
+    assert!(saw_water, "never saw the water flow event");
 }
 
 #[test]

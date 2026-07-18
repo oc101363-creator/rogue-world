@@ -157,7 +157,7 @@ pub fn process_world(world: &mut World) {
                         self_becomes,
                     } => {
                         claimed.insert((ny * w + nx) as usize);
-                        changed.push((nx, ny, neighbor, feat, rule.cause));
+                        changed.push((nx, ny, neighbor, target_prior, rule.cause));
                         if let Some((sf, pct)) = self_becomes {
                             if roll(seed ^ 0x5A5A, tick, idx) < pct {
                                 claimed.insert(idx);
