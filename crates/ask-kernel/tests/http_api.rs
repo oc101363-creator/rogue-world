@@ -321,3 +321,146 @@ async fn act_base_tick_reports_ticks_behind() {
         "ticks_behind = tick - base_tick"
     );
 }
+
+// -------------------------------------------------- message delivery receipts
+
+/// Per-target receipts: each accepted target gets a msg_id, each rejected
+/// one gets the reason — no more silent aggregate counts.
+#[tokio::test]
+async fn message_send_reports_per_target_results() {
+    let srv = start().await;
+    let a = register(&srv, "Recv A").await;
+    let b = register(&srv, "Recv B").await;
+    let (id_a, id_b) = (
+        a["agent_id"].as_u64().unwrap(),
+        b["agent_id"].as_u64().unwrap(),
+    );
+
+    let (_, v) = http(
+        &srv,
+        "POST",
+        "/api/message",
+        Some(json!({
+            "token": srv.dev_token,
+            "targets": [id_a, id_b, 999_999],
+            "text": "hello from ops",
+        })),
+    )
+    .await;
+    assert_eq!(v["ok"], json!(true));
+    assert_eq!(v["sent"], json!(2));
+    assert_eq!(v["rejected"], json!(1));
+    let results = v["results"].as_array().expect("results array");
+    assert_eq!(results.len(), 3);
+    let ok_rows: Vec<_> = results.iter().filter(|r| r["ok"] == json!(true)).collect();
+    assert_eq!(ok_rows.len(), 2);
+    assert!(
+        ok_rows.iter().all(|r| r["msg_id"].is_u64()),
+        "accepted targets must carry msg_id for status polling"
+    );
+    let bad = results.iter().find(|r| r["ok"] == json!(false)).unwrap();
+    assert_eq!(bad["id"], json!(999_999));
+    assert_eq!(bad["reason"], json!("unknown_target"));
+}
+
+/// The receipt loop: unread after send, read_tick stamped once the
+/// recipient's next view consumes its inbox. Gated: other tokens see
+/// nothing, the sender (here dev) sees its own.
+#[tokio::test]
+async fn message_status_tracks_read_receipt() {
+    let srv = start().await;
+    let reg = register(&srv, "Reader").await;
+    let token = reg["token"].as_str().unwrap();
+    let id = reg["agent_id"].as_u64().unwrap();
+
+    let (_, v) = http(
+        &srv,
+        "POST",
+        "/api/message",
+        Some(json!({"token": srv.dev_token, "targets": [id], "text": "ping"})),
+    )
+    .await;
+    let msg_id = v["results"][0]["msg_id"].as_u64().unwrap();
+    let status_url = |ids: &str| {
+        format!("/api/message/status?token={}&ids={ids}", srv.dev_token)
+    };
+
+    // before the agent views: delivered but unread
+    let (_, s0) = http(&srv, "GET", &status_url(&msg_id.to_string()), None).await;
+    let row = &s0["statuses"][0];
+    assert_eq!(row["id"], json!(msg_id));
+    assert!(row["read_tick"].is_null(), "read before any view?");
+
+    // agent views → inbox consumed → ledger stamped
+    let (_, _view) = http(&srv, "GET", &format!("/api/view?token={token}"), None).await;
+    let (_, s1) = http(&srv, "GET", &status_url(&msg_id.to_string()), None).await;
+    assert!(
+        s1["statuses"][0]["read_tick"].is_u64(),
+        "read_tick not stamped after view: {s1}"
+    );
+
+    // gating: the recipient's token is NOT the sender — sees nothing
+    let (_, s2) = http(
+        &srv,
+        "GET",
+        &format!("/api/message/status?token={token}&ids={msg_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        s2["statuses"].as_array().unwrap().len(),
+        0,
+        "non-sender token leaked a receipt"
+    );
+}
+
+/// Target 0 = operator: agents can always reach it (no FOV gate), the
+/// dev token drains it, consume-on-read, non-dev is refused.
+#[tokio::test]
+async fn operator_inbox_receives_agent_replies() {
+    let srv = start().await;
+    let reg = register(&srv, "Reporter").await;
+    let token = reg["token"].as_str().unwrap();
+
+    let (_, v) = http(
+        &srv,
+        "POST",
+        "/api/message",
+        Some(json!({"token": token, "targets": [0], "text": "ore depleted, new orders?"})),
+    )
+    .await;
+    assert_eq!(v["sent"], json!(1), "target 0 must always be deliverable");
+
+    // non-dev cannot read the operator inbox
+    let (_, nope) = http(
+        &srv,
+        "GET",
+        &format!("/api/message/inbox?token={token}"),
+        None,
+    )
+    .await;
+    assert_eq!(nope["reason"], json!("dev_token_required"));
+
+    // dev drains it
+    let (_, inbox) = http(
+        &srv,
+        "GET",
+        &format!("/api/message/inbox?token={}", srv.dev_token),
+        None,
+    )
+    .await;
+    let msgs = inbox["messages"].as_array().unwrap();
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(msgs[0]["from"], json!("Reporter"));
+    assert_eq!(msgs[0]["text"], json!("ore depleted, new orders?"));
+
+    // consume-on-read: second drain is empty
+    let (_, again) = http(
+        &srv,
+        "GET",
+        &format!("/api/message/inbox?token={}", srv.dev_token),
+        None,
+    )
+    .await;
+    assert_eq!(again["messages"].as_array().unwrap().len(), 0);
+}

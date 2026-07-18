@@ -34,12 +34,21 @@ export const el = {
   selPresetName: document.getElementById("sel-preset-name"),
   selText: document.getElementById("sel-text"),
   selSend: document.getElementById("sel-send"),
+  selChips: document.getElementById("sel-chips"),
+  selDelivery: document.getElementById("sel-delivery"),
+  squadList: document.getElementById("squad-list"),
+  squadLoad: document.getElementById("squad-load"),
+  squadSave: document.getElementById("squad-save"),
+  squadDel: document.getElementById("squad-del"),
+  squadName: document.getElementById("squad-name"),
+  opInbox: document.getElementById("op-inbox"),
 };
 
 export const ZOOM_STEPS = [6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 40];
 export const THEME_KEY = "ask-theme";
 export const TRACK_KEY = "ask-track-tokens";
 export const PRESETS_KEY = "ask-presets-v1";
+export const SQUADS_KEY = "ask-squads-v1";
 export const TRACK_COLORS = ["#ffff00", "#00ffff", "#00ff00", "#ff00ff", "#ff8800", "#88ff88"];
 
 export function loadTracked() {
@@ -88,6 +97,29 @@ export function savePresets(presets) {
   localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
 }
 
+/** Named selection sets ("miners", "team A") — operator-side, local only. */
+export function loadSquads() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SQUADS_KEY) || "[]");
+    return Array.isArray(raw) ? raw : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+export function saveSquads(squads) {
+  localStorage.setItem(SQUADS_KEY, JSON.stringify(squads));
+}
+
+/** Display name for an agent id: snapshot name > tracked name > #id. */
+export function agentName(id) {
+  const en = (S.lastSnap && S.lastSnap.entities || []).find((e) => e.id === id);
+  if (en && en.name) return en.name;
+  const t = S.tracked.find((t) => t.agent_id === id);
+  if (t && t.name) return t.name;
+  return `#${id}`;
+}
+
 /** The mutable viewer state. One bag, no hidden globals. */
 export const S = {
   display: null,
@@ -109,6 +141,8 @@ export const S = {
   selecting: false,
   selectStart: null, // { sx, sy, wx, wy }
   selectedAgentIds: new Set(),
+  /** last broadcast's per-target receipts [{agent, msg_id, ok, reason, read_tick}] */
+  delivery: [],
   cam: { tx: 0, ty: 0, zi: 4, follow: true },
 };
 S.followToken = S.tracked.length ? S.tracked[0].token : null;

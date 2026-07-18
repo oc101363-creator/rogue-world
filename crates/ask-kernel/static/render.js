@@ -1,7 +1,7 @@
 /* ASK viewer — rendering: map/entities, camera, themes, panels, inspect popup.
  * Imports state only; calls into net lazily where the tracker UI needs it. */
 
-import { el, S, ZOOM_STEPS, THEME_KEY, saveTracked, loadPresets } from "./state.js";
+import { el, S, ZOOM_STEPS, THEME_KEY, saveTracked, loadPresets, agentName } from "./state.js";
 import { sendSubscribe } from "./net.js";
 
 // ---------------------------------------------------------------- selectors
@@ -158,6 +158,54 @@ export function renderPresets() {
 export function updateSelectionPanel() {
   if (!el.selCount) return;
   el.selCount.textContent = `${S.selectedAgentIds.size} agents selected`;
+  renderSelectionChips();
+}
+
+/** Recipient chips: who's in the broadcast — named, removable, and dimmed
+ * when out of live FOV (a send to them will be rejected `not_visible`). */
+export function renderSelectionChips() {
+  if (!el.selChips) return;
+  el.selChips.innerHTML = "";
+  const visible = new Set(visibleAgentIds());
+  for (const id of S.selectedAgentIds) {
+    const chip = document.createElement("span");
+    chip.className = "sel-chip" + (visible.has(id) ? "" : " out-of-fov");
+    chip.title = visible.has(id) ? "in FOV" : "out of FOV — send will be rejected";
+    chip.textContent = agentName(id) + " ";
+    const rm = document.createElement("button");
+    rm.type = "button";
+    rm.className = "rm";
+    rm.textContent = "[x]";
+    rm.addEventListener("click", (e) => {
+      e.stopPropagation();
+      S.selectedAgentIds.delete(id);
+      updateSelectionPanel();
+      updateSelectionHighlight();
+    });
+    chip.appendChild(rm);
+    el.selChips.appendChild(chip);
+  }
+}
+
+/** Per-target delivery rows under SEND: sent → read(tick), or ✗ reason. */
+export function renderDelivery() {
+  if (!el.selDelivery) return;
+  el.selDelivery.innerHTML = "";
+  for (const d of S.delivery) {
+    const row = document.createElement("div");
+    row.className = "delivery-row";
+    if (!d.ok) {
+      row.textContent = `✗ ${agentName(d.agent)} — ${d.reason}`;
+      row.classList.add("delivery-fail");
+    } else if (d.read_tick != null) {
+      row.textContent = `✓ ${agentName(d.agent)} — read (tick ${d.read_tick})`;
+      row.classList.add("delivery-read");
+    } else {
+      row.textContent = `… ${agentName(d.agent)} — unread`;
+      row.classList.add("delivery-pending");
+    }
+    el.selDelivery.appendChild(row);
+  }
 }
 
 export function updateSelectionHighlight() {
@@ -366,6 +414,7 @@ export function drawSnap(snap) {
   if (!snap) return;
   S.mapW = snap.width;
   S.mapH = snap.height;
+  renderSelectionChips(); // out-of-FOV dimming follows the live snapshot
   const d = syncViewSize();
   clampCamera();
 

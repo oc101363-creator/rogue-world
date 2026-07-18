@@ -129,8 +129,19 @@ pub(crate) struct MessageSendResponse {
     ok: bool,
     sent: usize,
     rejected: usize,
+    /// Per-target receipt: who got it (with msg_id for status polling),
+    /// who didn't (with the reason).
+    results: Vec<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct MessageStatusQuery {
+    token: String,
+    /// Comma-separated message ids from a send response.
+    #[serde(default)]
+    ids: String,
 }
 
 /// Pre-submit shape check (shared with the WS action path).
@@ -332,32 +343,26 @@ pub(crate) async fn message_send(
     Json(req): Json<MessageSendRequest>,
 ) -> impl IntoResponse {
     const MAX_LEN: usize = 500;
+    let reject_all = |reason: &str| {
+        Json(MessageSendResponse {
+            ok: false,
+            sent: 0,
+            rejected: 0,
+            results: Vec::new(),
+            reason: Some(reason.into()),
+        })
+    };
     let text = req.text.trim().to_string();
     if text.is_empty() {
-        return Json(MessageSendResponse {
-            ok: false,
-            sent: 0,
-            rejected: 0,
-            reason: Some("empty text".into()),
-        });
+        return reject_all("empty text");
     }
     if text.encode_utf16().count() > MAX_LEN {
-        return Json(MessageSendResponse {
-            ok: false,
-            sent: 0,
-            rejected: 0,
-            reason: Some("text too long".into()),
-        });
+        return reject_all("text too long");
     }
 
     let mut sim = st.sim.lock().await;
     let Some(vis) = player_visible_map(&mut sim.kernel.world, &st.reg, &req.token) else {
-        return Json(MessageSendResponse {
-            ok: false,
-            sent: 0,
-            rejected: 0,
-            reason: Some("unauthorized".into()),
-        });
+        return reject_all("unauthorized");
     };
 
     let is_dev = req
@@ -369,12 +374,7 @@ pub(crate) async fn message_send(
         .rate
         .check(&format!("msg:{}", req.token), 20, Duration::from_secs(60))
     {
-        return Json(MessageSendResponse {
-            ok: false,
-            sent: 0,
-            rejected: 0,
-            reason: Some("rate_limited".into()),
-        });
+        return reject_all("rate_limited");
     }
     // Sender identity comes from the token (agent name), never the wire IP —
     // recipients need to know *who* in the world wrote to them.
@@ -403,18 +403,9 @@ pub(crate) async fn message_send(
 
     let mut sent = 0;
     let mut rejected = 0;
+    let mut results = Vec::new();
 
     for target_id in req.targets {
-        let Some((entity, x, y)) = agents.get(&target_id).copied() else {
-            rejected += 1;
-            continue;
-        };
-
-        if !is_dev && !vis.is_visible(x, y) {
-            rejected += 1;
-            continue;
-        }
-
         let id = {
             let mut counter = sim
                 .kernel
@@ -425,9 +416,40 @@ pub(crate) async fn message_send(
             id
         };
 
+        // Operator pseudo-target: exempt from the visibility gate (you may
+        // always talk to your operator), lands in the dev-only inbox.
+        if target_id == crate::components::OPERATOR_TARGET {
+            sim.kernel
+                .world
+                .resource_mut::<crate::components::OperatorInbox>()
+                .push(crate::components::Envelope {
+                    id,
+                    from: sender_name.clone(),
+                    text: text.clone(),
+                    sent_tick: tick,
+                    read: false,
+                });
+            sent += 1;
+            results.push(serde_json::json!({"id": target_id, "ok": true, "msg_id": id}));
+            continue;
+        }
+
+        let Some((entity, x, y)) = agents.get(&target_id).copied() else {
+            rejected += 1;
+            results.push(serde_json::json!({"id": target_id, "ok": false, "reason": "unknown_target"}));
+            continue;
+        };
+
+        if !is_dev && !vis.is_visible(x, y) {
+            rejected += 1;
+            results.push(serde_json::json!({"id": target_id, "ok": false, "reason": "not_visible"}));
+            continue;
+        }
+
         let Some(mut mailbox) = sim.kernel.world.get_mut::<crate::components::AgentMailbox>(entity)
         else {
             rejected += 1;
+            results.push(serde_json::json!({"id": target_id, "ok": false, "reason": "no_mailbox"}));
             continue;
         };
 
@@ -438,15 +460,101 @@ pub(crate) async fn message_send(
             sent_tick: tick,
             read: false,
         });
+        // receipt: the ledger watches delivery until the recipient reads it
+        sim.kernel
+            .world
+            .resource_mut::<crate::components::MessageLedger>()
+            .record(crate::components::MessageRecord {
+                id,
+                sender_key: req.token.clone(),
+                from: sender_name.clone(),
+                target: target_id,
+                sent_tick: tick,
+                read_tick: None,
+            });
         sent += 1;
+        results.push(serde_json::json!({"id": target_id, "ok": true, "msg_id": id}));
     }
 
     Json(MessageSendResponse {
         ok: true,
         sent,
         rejected,
+        results,
         reason: None,
     })
+}
+
+/// GET /api/message/status?token=&ids=1,2,3 — delivery/read receipts for
+/// messages YOU sent (dev token sees all). Channel metadata only.
+pub(crate) async fn message_status(
+    State(st): State<AppState>,
+    Query(q): Query<MessageStatusQuery>,
+) -> impl IntoResponse {
+    let is_dev = q
+        .token
+        .split(',')
+        .map(str::trim)
+        .any(|t| st.reg.is_dev_token(t));
+    if !st
+        .rate
+        .check(&format!("msgstatus:{}", q.token), 60, Duration::from_secs(60))
+    {
+        return Json(serde_json::json!({"ok": false, "reason": "rate_limited"}));
+    }
+    let ids: Vec<u64> = q
+        .ids
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+    let sim = st.sim.lock().await;
+    let ledger = sim
+        .kernel
+        .world
+        .resource::<crate::components::MessageLedger>();
+    let statuses: Vec<_> = ledger
+        .status(&ids)
+        .into_iter()
+        .filter(|r| is_dev || r.sender_key == q.token)
+        .map(|r| {
+            serde_json::json!({
+                "id": r.id,
+                "from": r.from,
+                "target": r.target,
+                "sent_tick": r.sent_tick,
+                "read_tick": r.read_tick,
+            })
+        })
+        .collect();
+    Json(serde_json::json!({"ok": true, "statuses": statuses}))
+}
+
+/// GET /api/message/inbox?token=<dev> — drain the operator inbox
+/// (messages agents sent to target 0). Consume-on-read.
+pub(crate) async fn message_inbox(
+    State(st): State<AppState>,
+    Query(q): Query<TokenQuery>,
+) -> impl IntoResponse {
+    let is_dev = q
+        .token
+        .split(',')
+        .map(str::trim)
+        .any(|t| st.reg.is_dev_token(t));
+    if !is_dev {
+        return Json(serde_json::json!({"ok": false, "reason": "dev_token_required"}));
+    }
+    let mut sim = st.sim.lock().await;
+    let msgs = sim
+        .kernel
+        .world
+        .resource_mut::<crate::components::OperatorInbox>()
+        .drain();
+    Json(serde_json::json!({
+        "ok": true,
+        "messages": msgs.iter().map(|m| serde_json::json!({
+            "id": m.id, "from": m.from, "text": m.text, "sent_tick": m.sent_tick,
+        })).collect::<Vec<_>>(),
+    }))
 }
 
 // --------------------------------------------------------------- spectator

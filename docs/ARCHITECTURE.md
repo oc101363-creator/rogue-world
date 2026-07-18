@@ -80,6 +80,18 @@ lock so `applied_tick = tick+1` is exact; resubmit within a tick returns
 slow agents must stay playable); `view?after_tick=N` long-polls on a
 watch channel fed each tick. Default tick is 500ms (LLM-paced).
 
+Message channel (`components.rs` + `serve/api.rs`): `/api/message`
+delivers FOV-gated text to agent mailboxes and returns per-target
+receipts (`results: [{id, ok, msg_id?, reason?}]`). A ring-capped
+`MessageLedger` (ephemeral, like EventInbox) tracks delivery → read;
+read ticks are stamped at the single consumption point (agent_view
+mark_read) and queried via `GET /api/message/status` (sender-token or
+dev only). Target id 0 is the reserved operator pseudo-entity: never in
+the agents table, never has FOV, exempt from the visibility gate;
+messages to it land in the dev-only `OperatorInbox`
+(`GET /api/message/inbox`, consume-on-read). The ledger knows DELIVERY,
+never meaning — teams/roles/trust stay player-side.
+
 ## Key structures
 
 - `Grid` = row-major `Vec<u16>` frog feat ids; semantics in `f_info::FeatTable`

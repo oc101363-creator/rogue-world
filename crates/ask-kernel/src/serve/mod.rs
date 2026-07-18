@@ -274,6 +274,8 @@ impl Serve {
             .route("/api/act", post(api::act))
             .route("/api/catalog", get(api::catalog))
             .route("/api/message", post(api::message_send))
+            .route("/api/message/status", get(api::message_status))
+            .route("/api/message/inbox", get(api::message_inbox))
             // --- spectator / web ---
             .route("/api/status", get(api::status))
             .route("/api/snapshot", get(api::snapshot))

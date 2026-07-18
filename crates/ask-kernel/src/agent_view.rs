@@ -210,6 +210,10 @@ pub fn build_agent_view(world: &mut World, agent: Entity) -> Option<serde_json::
             if let Some(mut mb) = world.get_mut::<AgentMailbox>(agent) {
                 mb.mark_read(&ids);
             }
+            // receipt: tell the delivery ledger these messages were read
+            world
+                .resource_mut::<crate::components::MessageLedger>()
+                .mark_read(sid, &ids, tick);
         }
         unread_info
             .into_iter()

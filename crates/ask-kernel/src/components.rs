@@ -406,6 +406,80 @@ impl AgentMailbox {
 #[derive(Resource, Default, Debug, Clone, Copy)]
 pub struct MessageCounter(pub u64);
 
+/// Delivery record for one sent message (one recipient per record).
+/// Channel metadata — the kernel knows DELIVERY, never meaning.
+#[derive(Clone, Debug)]
+pub struct MessageRecord {
+    pub id: u64,
+    /// Gating key (the sender's token) — never leaves the server.
+    pub sender_key: String,
+    pub from: String,
+    pub target: u64,
+    pub sent_tick: u64,
+    pub read_tick: Option<u64>,
+}
+
+/// Delivery ledger: who was sent what, and whether they've read it.
+/// Ring-capped and ephemeral (like EventInbox) — receipts are operational
+/// state, not world state; a restart simply forgets them.
+#[derive(Resource, Default)]
+pub struct MessageLedger {
+    pub records: std::collections::VecDeque<MessageRecord>,
+}
+
+impl MessageLedger {
+    pub const CAP: usize = 100;
+
+    pub fn record(&mut self, rec: MessageRecord) {
+        if self.records.len() >= Self::CAP {
+            self.records.pop_front();
+        }
+        self.records.push_back(rec);
+    }
+
+    /// Stamp read ticks for envelopes `ids` just consumed by `agent_id`.
+    pub fn mark_read(&mut self, agent_id: u64, ids: &[u64], tick: u64) {
+        for rec in self.records.iter_mut() {
+            if rec.target == agent_id && rec.read_tick.is_none() && ids.contains(&rec.id) {
+                rec.read_tick = Some(tick);
+            }
+        }
+    }
+
+    pub fn status(&self, ids: &[u64]) -> Vec<&MessageRecord> {
+        self.records
+            .iter()
+            .filter(|r| ids.contains(&r.id))
+            .collect()
+    }
+}
+
+/// Reserved target id for messages FROM agents TO the operator.
+/// Pseudo-entity by design: never in the agents table, never has FOV,
+/// exempt from the visibility gate (you may always talk to your operator).
+pub const OPERATOR_TARGET: u64 = 0;
+
+/// Operator inbox — dev-token-only, consume-on-read, ring-capped.
+#[derive(Resource, Default)]
+pub struct OperatorInbox {
+    pub messages: std::collections::VecDeque<Envelope>,
+}
+
+impl OperatorInbox {
+    pub const CAP: usize = 100;
+
+    pub fn push(&mut self, env: Envelope) {
+        if self.messages.len() >= Self::CAP {
+            self.messages.pop_front();
+        }
+        self.messages.push_back(env);
+    }
+
+    pub fn drain(&mut self) -> Vec<Envelope> {
+        self.messages.drain(..).collect()
+    }
+}
+
 /// Per-agent feedback feed — the events THIS agent perceived, held until its
 /// next view (consume-on-read), stamped with the tick they happened on.
 ///

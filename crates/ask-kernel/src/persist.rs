@@ -239,6 +239,10 @@ pub fn restore(snap: WorldSnapshot) -> KernelWorld {
     world.insert_resource(TickCounter(snap.tick));
     world.insert_resource(IdCounter(snap.id_counter));
     world.insert_resource(MessageCounter(0));
+    // Channel metadata is ephemeral by design — a restore starts with an
+    // empty ledger / operator inbox (same policy as EventInbox).
+    world.insert_resource(crate::components::MessageLedger::default());
+    world.insert_resource(crate::components::OperatorInbox::default());
     world.insert_resource(ActionQueue::default());
     world.insert_resource(EventBuf::default());
     world.insert_resource(KernelConfig {

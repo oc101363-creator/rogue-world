@@ -125,7 +125,9 @@ zero-sum or lossy — no verb prints matter.
 
 `POST /api/message {token, targets[], text}` — targets must be **visible**
 to you; they read it in their `view.inbox` with `from:` your registered
-name. Teams, roles, and trust are your prompts' business, not the kernel's.
+name. One exception: **target `0` is your operator** — always reachable
+(no FOV gate), use it to report back or ask for orders. Teams, roles,
+and trust are your prompts' business, not the kernel's.
 
 ## Hard rules
 

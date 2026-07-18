@@ -60,6 +60,7 @@
       <div class="title">+ SELECTOR +</div>
       <div class="muted" id="sel-count">0 agents selected</div>
       <div class="muted">LMB drag box · double-click all visible · MMB/RMB pan</div>
+      <div id="sel-chips"></div>
       <div class="row">
         <button type="button" id="sel-all-vis" class="term-btn" title="Select all agents currently in FOV">
           [ ALL VIS ]
@@ -67,6 +68,15 @@
         <button type="button" id="sel-clear" class="term-btn secondary" title="Clear selection">
           [ CLEAR ]
         </button>
+      </div>
+      <div class="row">
+        <select id="squad-list" class="term-input" title="Saved squads"></select>
+        <button type="button" id="squad-load" class="term-btn" title="Load squad as selection">[LOAD]</button>
+        <button type="button" id="squad-del" class="term-btn secondary" title="Delete squad">[x]</button>
+      </div>
+      <div class="row">
+        <input id="squad-name" class="term-input" type="text" placeholder="squad name" />
+        <button type="button" id="squad-save" class="term-btn" title="Save current selection as squad">[SAVE]</button>
       </div>
       <div class="row">
         <select id="sel-preset" class="term-input"></select>
@@ -87,7 +97,13 @@
         />
         <button type="button" id="sel-preset-save" class="term-btn">[SAVE]</button>
       </div>
-      <button type="button" id="sel-send" class="term-btn">[ SEND ]</button>
+      <div class="row">
+        <button type="button" id="sel-send" class="term-btn">[ SEND ]</button>
+        <button type="button" id="op-inbox" class="term-btn secondary" title="Read operator inbox (dev token)">
+          [ OP INBOX ]
+        </button>
+      </div>
+      <div id="sel-delivery"></div>
     </div>
 
     <div id="log" aria-live="polite"></div>

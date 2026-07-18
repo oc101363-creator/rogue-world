@@ -58,6 +58,8 @@ impl KernelWorld {
         world.insert_resource(TickCounter(0));
         world.insert_resource(IdCounter(0));
         world.insert_resource(MessageCounter(0));
+        world.insert_resource(crate::components::MessageLedger::default());
+        world.insert_resource(crate::components::OperatorInbox::default());
         world.insert_resource(ActionQueue::default());
         world.insert_resource(EventBuf::default());
         world.insert_resource(KernelConfig {

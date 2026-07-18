@@ -2,7 +2,7 @@
  * Modules: state.js (shared state) · render.js (drawing) · net.js (server)
  * · input.js (keyboard/mouse). This file only assembles them. */
 
-import { el, S, loadPresets, savePresets } from "./state.js";
+import { el, S, loadPresets, savePresets, loadSquads, saveSquads } from "./state.js";
 import {
   setupThemeSelect,
   updateModeHud,
@@ -19,6 +19,7 @@ import {
   refreshTracked,
   setHumanControl,
   sendPromptToSelected,
+  fetchOperatorInbox,
   applySnapshot,
 } from "./net.js";
 import {
@@ -123,10 +124,63 @@ if (el.selClear) {
   });
 }
 
+// named squads (selection sets, localStorage only — the server never knows)
+function renderSquads() {
+  if (!el.squadList) return;
+  const squads = loadSquads();
+  el.squadList.innerHTML = "";
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = squads.length ? "(squads)" : "(no squads)";
+  el.squadList.appendChild(empty);
+  for (const sq of squads) {
+    const opt = document.createElement("option");
+    opt.value = sq.name;
+    opt.textContent = `${sq.name} (${sq.ids.length})`;
+    el.squadList.appendChild(opt);
+  }
+}
+if (el.squadSave) {
+  el.squadSave.addEventListener("click", () => {
+    const name = (el.squadName.value || "").trim();
+    if (!name) return pushLog("SQUAD: name it first");
+    if (!S.selectedAgentIds.size) return pushLog("SQUAD: empty selection");
+    const squads = loadSquads().filter((s) => s.name !== name);
+    squads.push({ name, ids: Array.from(S.selectedAgentIds) });
+    saveSquads(squads);
+    el.squadName.value = "";
+    renderSquads();
+    pushLog(`SQUAD saved "${name}" (${S.selectedAgentIds.size})`);
+  });
+}
+if (el.squadLoad) {
+  el.squadLoad.addEventListener("click", () => {
+    const sq = loadSquads().find((s) => s.name === el.squadList.value);
+    if (!sq) return;
+    setSelectedAgents(sq.ids);
+    pushLog(`SQUAD "${sq.name}" → ${sq.ids.length} selected`);
+  });
+}
+if (el.squadDel) {
+  el.squadDel.addEventListener("click", () => {
+    const name = el.squadList.value;
+    if (!name) return;
+    saveSquads(loadSquads().filter((s) => s.name !== name));
+    renderSquads();
+    pushLog(`SQUAD deleted "${name}"`);
+  });
+}
+if (el.opInbox) {
+  el.opInbox.addEventListener("click", () => {
+    fetchOperatorInbox();
+  });
+}
+
 // boot
 setupThemeSelect();
 updateModeHud();
 renderPresets();
+renderSquads();
 updateSelectionPanel();
 renderTracker();
 refreshTracked();
